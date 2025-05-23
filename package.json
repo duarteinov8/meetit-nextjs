@@ -6,22 +6,47 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "format": "prettier --write .",
+    "create-test-user": "node scripts/create-test-user.js"
   },
   "dependencies": {
+    "@auth/mongodb-adapter": "^2.6.0",
+    "@azure/communication-calling": "^1.35.1",
+    "@tanstack/react-query": "^5.0.0",
+    "bcryptjs": "^3.0.2",
+    "daisyui": "^4.0.0",
+    "date-fns": "^3.0.0",
+    "lucide-react": "^0.511.0",
+    "microsoft-cognitiveservices-speech-sdk": "^1.44.0",
+    "mongodb": "^6.16.0",
+    "mongoose": "^8.0.0",
+    "next": "15.1.8",
+    "next-auth": "^5.0.0-beta.3",
+    "openai": "^4.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "next": "15.1.8"
+    "react-hot-toast": "^2.4.1",
+    "react-icons": "^5.0.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^3.22.0"
   },
   "devDependencies": {
-    "typescript": "^5",
+    "@eslint/eslintrc": "^3",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "postcss": "^8",
-    "tailwindcss": "^3.4.1",
+    "dotenv": "^16.5.0",
     "eslint": "^9",
     "eslint-config-next": "15.1.8",
-    "@eslint/eslintrc": "^3"
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0",
+    "postcss": "^8",
+    "prettier": "^3.0.0",
+    "prettier-plugin-tailwindcss": "^0.5.0",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
   }
 }
