@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import { startTranscription, stopTranscription } from '@/lib/azure/speech';
-import { Mic, MicOff, Square } from 'lucide-react';
+import { Mic, MicOff, Square, Pencil, X, Check } from 'lucide-react';
 import { useSession } from 'next-auth/react';
+import MeetingSummary from './MeetingSummary';
 
 interface Transcription {
   text: string;
@@ -46,6 +47,13 @@ export default function MeetingRecorder() {
   const startTimeRef = useRef<number | null>(null);
   const interimTranscriptionsRef = useRef<Map<string, Transcription>>(new Map());
   const lastSpeakerRef = useRef<string>('Speaker 1');
+  const [speakerNames, setSpeakerNames] = useState<{ [id: string]: string }>({});
+  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState<string>('');
+  const editingRef = useRef<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastClickTimeRef = useRef<number>(0);
+  const isEditingRef = useRef<boolean>(false);
 
   const trackUsage = async (duration: number) => {
     if (!session?.user?.id) return;
@@ -177,12 +185,28 @@ export default function MeetingRecorder() {
       audioConfigRef.current = null;
     }
     
-    // Convert any remaining interim transcriptions to final, excluding "Unknown Speaker" entries
-    setTranscriptions(prev => 
-      prev
+    // Process transcriptions when stopping
+    setTranscriptions(prev => {
+      // Get all final transcriptions
+      const finalTranscriptions = prev.filter(t => t.isFinal);
+      
+      // Get all interim transcriptions that aren't already in final form
+      const interimTranscriptions = Array.from(interimTranscriptionsRef.current.values())
         .filter(t => t.speakerId !== 'Speaker Unknown')
-        .map(t => t.isFinal ? t : { ...t, isFinal: true })
-    );
+        .filter(t => !finalTranscriptions.some(ft => 
+          ft.speakerId === t.speakerId && 
+          ft.text === t.text
+        ));
+      
+      // Convert interim to final and combine with existing final transcriptions
+      const allTranscriptions = [
+        ...finalTranscriptions,
+        ...interimTranscriptions.map(t => ({ ...t, isFinal: true }))
+      ];
+      
+      // Sort by timestamp
+      return allTranscriptions.sort((a, b) => a.timestamp - b.timestamp);
+    });
     
     // Clear interim transcriptions
     interimTranscriptionsRef.current.clear();
@@ -205,22 +229,97 @@ export default function MeetingRecorder() {
     };
   }, []);
 
+  // Helper: get display name for a speaker
+  function getDisplayName(speakerId: string) {
+    return speakerNames[speakerId] || speakerId;
+  }
+
+  // When recording stops, initialize speakerNames mapping
+  useEffect(() => {
+    if (!isRecording && transcriptions.length > 0) {
+      console.log('Recording stopped, initializing speaker names');
+      const uniqueSpeakers = Array.from(new Set(transcriptions.map(t => t.speakerId)));
+      console.log('Unique speakers:', uniqueSpeakers);
+      setSpeakerNames(prev => {
+        const updated = { ...prev };
+        uniqueSpeakers.forEach(id => {
+          if (id && !updated[id]) updated[id] = id;
+        });
+        console.log('Updated speaker names:', updated);
+        return updated;
+      });
+    }
+  }, [isRecording, transcriptions]);
+
+  // Inline edit handlers
+  const startEditing = (speakerId: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    console.log('Starting edit for speaker:', speakerId);
+    const currentSpeakerId = speakerId.trim();
+    
+    editingRef.current = currentSpeakerId;
+    setEditingSpeaker(currentSpeakerId);
+    setEditingValue(speakerNames[currentSpeakerId] || currentSpeakerId);
+    
+    // Focus the input after it's rendered
+    setTimeout(() => {
+      if (inputRef.current) {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
+    }, 0);
+  };
+
+  const saveEdit = () => {
+    if (!editingRef.current) return;
+
+    const currentSpeakerId = editingRef.current;
+    const newName = editingValue.trim();
+    
+    if (!newName) {
+      cancelEdit();
+      return;
+    }
+
+    console.log('Saving speaker name for:', currentSpeakerId);
+    setSpeakerNames(prev => ({ ...prev, [currentSpeakerId]: newName }));
+    editingRef.current = null;
+    setEditingSpeaker(null);
+    setEditingValue('');
+  };
+
+  const cancelEdit = () => {
+    editingRef.current = null;
+    setEditingSpeaker(null);
+    setEditingValue('');
+  };
+
+  // Add a function to format transcriptions into a single string
+  const getFormattedTranscript = () => {
+    return transcriptions
+      .filter(t => t.isFinal && t.speakerId && t.speakerId !== 'Speaker Unknown')
+      .map(t => `${getDisplayName(t.speakerId || '')}: ${t.text}`)
+      .join('\n');
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold">Meeting Recording</h2>
+        <h2 className="text-xl font-semibold text-gray-900">Meeting Recording</h2>
         <button
           onClick={isRecording ? stopRecording : startRecording}
-          className={`btn ${isRecording ? 'btn-error' : 'btn-primary'}`}
+          className={`btn ${isRecording ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'} flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors`}
         >
           {isRecording ? (
             <>
-              <Square className="w-4 h-4 mr-2" />
+              <Square className="w-4 h-4" />
               Stop Recording
             </>
           ) : (
             <>
-              <Mic className="w-4 h-4 mr-2" />
+              <Mic className="w-4 h-4" />
               Start Recording
             </>
           )}
@@ -237,14 +336,61 @@ export default function MeetingRecorder() {
             }`}
           >
             <div className="flex items-start gap-2">
-              <span className="text-xs font-medium px-2 py-1 rounded bg-gray-200 text-gray-700">
-                {transcription.speakerId}
-              </span>
+              {/* Inline editable speaker name */}
+              {(!isRecording && editingRef.current === transcription.speakerId?.trim()) ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    ref={inputRef}
+                    className="text-xs font-medium px-2 py-1 rounded bg-white text-gray-900 outline-none border border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    value={editingValue}
+                    onChange={(e) => setEditingValue(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        saveEdit();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEdit();
+                      }
+                    }}
+                    style={{ minWidth: 60 }}
+                  />
+                  <button
+                    onClick={saveEdit}
+                    className="p-1 text-green-600 hover:text-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 rounded"
+                    title="Save"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={cancelEdit}
+                    className="p-1 text-red-600 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
+                    title="Cancel"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs font-medium px-2 py-1 rounded bg-gray-200 text-gray-900">
+                    {getDisplayName(transcription.speakerId || '')}
+                  </span>
+                  {!isRecording && (
+                    <button
+                      onClick={(e) => startEditing(transcription.speakerId || '', e)}
+                      className="p-1 text-gray-600 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 rounded"
+                      title="Edit speaker name"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="flex-1">
-                <p className={`text-sm ${transcription.isFinal && !isRecording ? 'text-gray-900' : 'text-gray-500'}`}>
+                <p className={`text-sm ${transcription.isFinal && !isRecording ? 'text-gray-900' : 'text-gray-600'}`}>
                   {transcription.text}
                 </p>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-gray-500">
                   {new Date(transcription.timestamp).toLocaleTimeString()}
                 </span>
               </div>
@@ -252,6 +398,13 @@ export default function MeetingRecorder() {
           </div>
         ))}
       </div>
+
+      {/* Meeting Summary Section */}
+      {!isRecording && transcriptions.length > 0 && (
+        <div className="mt-8">
+          <MeetingSummary transcript={getFormattedTranscript()} />
+        </div>
+      )}
     </div>
   );
-} 
+}
