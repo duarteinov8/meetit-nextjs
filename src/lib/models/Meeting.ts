@@ -1,88 +1,104 @@
 import mongoose from 'mongoose';
+import connectDB from '../mongoose';
 
-const meetingSchema = new mongoose.Schema({
+export interface ITranscription {
+  text: string;
+  timestamp: number;
+  isFinal: boolean;
+  speakerId?: string;
+  speakerName?: string;
+}
+
+export interface IMeeting {
+  title: string;
+  description?: string;
+  userId: mongoose.Types.ObjectId;
+  startTime: Date;
+  endTime?: Date;
+  duration?: number; // in seconds
+  transcriptions: ITranscription[];
+  speakerNames: Record<string, string>;
+  summary?: {
+    text: string;
+    actionItems: string[];
+    keyPoints: string[];
+  };
+  participants?: string[];
+  tags?: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const meetingSchema = new mongoose.Schema<IMeeting>({
   title: {
     type: String,
     required: [true, 'Please provide a meeting title'],
-    maxlength: [100, 'Title cannot be more than 100 characters'],
+    trim: true,
+    maxlength: [200, 'Title cannot be more than 200 characters'],
   },
   description: {
     type: String,
-    maxlength: [500, 'Description cannot be more than 500 characters'],
+    trim: true,
+    maxlength: [1000, 'Description cannot be more than 1000 characters'],
   },
-  host: {
+  userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: [true, 'Meeting must belong to a user'],
   },
-  participants: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-  }],
   startTime: {
     type: Date,
-    required: true,
+    required: [true, 'Please provide a start time'],
   },
   endTime: {
     type: Date,
   },
-  status: {
-    type: String,
-    enum: ['scheduled', 'in-progress', 'completed', 'cancelled'],
-    default: 'scheduled',
+  duration: {
+    type: Number,
   },
-  transcription: {
-    type: String,
+  transcriptions: [{
+    text: {
+      type: String,
+      required: true,
+    },
+    timestamp: {
+      type: Number,
+      required: true,
+    },
+    isFinal: {
+      type: Boolean,
+      default: false,
+    },
+    speakerId: String,
+    speakerName: String,
+  }],
+  speakerNames: {
+    type: Object,
+    default: {},
   },
   summary: {
-    type: String,
+    text: String,
+    actionItems: [String],
+    keyPoints: [String],
   },
-  aiInsights: {
-    actionItems: [{
-      text: String,
-      assignee: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-      status: {
-        type: String,
-        enum: ['pending', 'in-progress', 'completed'],
-        default: 'pending',
-      },
-    }],
-    topics: [{
-      name: String,
-      confidence: Number,
-    }],
-    sentiment: {
-      type: String,
-      enum: ['positive', 'neutral', 'negative'],
-    },
-  },
-  recordingUrl: {
-    type: String,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now,
-  },
+  participants: [String],
+  tags: [String],
+}, {
+  timestamps: true, // Adds createdAt and updatedAt fields
 });
 
-// Update the updatedAt timestamp before saving
+// Index for faster queries
+meetingSchema.index({ userId: 1, startTime: -1 });
+
+// Update duration when endTime is set
 meetingSchema.pre('save', function(next) {
-  this.updatedAt = new Date();
+  if (this.endTime && this.startTime) {
+    this.duration = Math.floor((this.endTime.getTime() - this.startTime.getTime()) / 1000);
+  }
   next();
 });
 
-// Add indexes for common queries
-meetingSchema.index({ host: 1, startTime: -1 });
-meetingSchema.index({ participants: 1, startTime: -1 });
-meetingSchema.index({ status: 1, startTime: -1 });
-
-const Meeting = mongoose.models.Meeting || mongoose.model('Meeting', meetingSchema);
+// Create the model if it doesn't exist
+const Meeting = mongoose.models.Meeting || mongoose.model<IMeeting>('Meeting', meetingSchema);
 
 export default Meeting; 

@@ -5,6 +5,8 @@ import { Loader2, Send } from 'lucide-react';
 
 interface MeetingSummaryProps {
   transcript: string;
+  initialSummary?: MeetingAnalysis;
+  onSummaryGenerated?: (summary: MeetingAnalysis) => void;
 }
 
 interface MeetingAnalysis {
@@ -18,8 +20,8 @@ interface Transcription {
   text: string;
 }
 
-export default function MeetingSummary({ transcript }: MeetingSummaryProps) {
-  const [summary, setSummary] = useState<MeetingAnalysis | null>(null);
+export default function MeetingSummary({ transcript, initialSummary, onSummaryGenerated }: MeetingSummaryProps) {
+  const [summary, setSummary] = useState<MeetingAnalysis | null>(initialSummary || null);
   const [isLoading, setIsLoading] = useState(false);
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
@@ -59,6 +61,10 @@ export default function MeetingSummary({ transcript }: MeetingSummaryProps) {
 
       const result = await response.json();
       setSummary(result);
+      // Notify parent component about the new summary
+      if (onSummaryGenerated) {
+        onSummaryGenerated(result);
+      }
     } catch (error) {
       console.error('Error generating summary:', error);
       alert(error instanceof Error ? error.message : 'Failed to generate meeting summary. Please try again.');

@@ -10,12 +10,11 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     setIsLoading(true);
-
-    const formData = new FormData(event.currentTarget);
+    
+    const formData = new FormData(e.currentTarget);
     const email = formData.get('email') as string;
     const password = formData.get('password') as string;
 
@@ -25,20 +24,19 @@ export default function LoginPage() {
         password,
         redirect: false,
       });
-
+      
       if (result?.error) {
-        setError('Invalid email or password');
+        setError(result.error);
         return;
       }
-
-      router.push('/dashboard'); // Redirect to dashboard after successful login
-      router.refresh(); // Refresh the page to update the session
-    } catch (error) {
-      setError('An error occurred. Please try again.');
+      
+      router.push('/dashboard');
+    } catch {
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
-  }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-base-200">
@@ -101,10 +99,10 @@ export default function LoginPage() {
           <div className="divider">OR</div>
 
           <div className="text-center">
-            <p className="text-sm">
-              Don't have an account?{' '}
-              <Link href="/register" className="link link-primary">
-                Sign up
+            <p className="text-sm text-gray-600 mt-4">
+              Don&apos;t have an account?{' '}
+              <Link href="/register" className="text-blue-600 hover:text-blue-800">
+                Register here
               </Link>
             </p>
           </div>

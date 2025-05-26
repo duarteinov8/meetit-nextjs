@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
-import { auth } from '@/auth';
+import { getSession } from '@/auth';
 
 // Configure Azure OpenAI
 const openai = new OpenAI({
@@ -55,7 +55,7 @@ async function retryOperation<T>(
 export async function POST(request: Request) {
   try {
     // Check authentication
-    const session = await auth();
+    const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

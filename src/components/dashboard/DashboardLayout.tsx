@@ -1,4 +1,4 @@
-import { auth } from '@/auth';
+import { getSession } from '@/auth';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { UserCircle, Calendar, Users, Settings, Video } from 'lucide-react';
@@ -9,7 +9,7 @@ interface DashboardLayoutProps {
 }
 
 export default async function DashboardLayout({ children }: DashboardLayoutProps) {
-  const session = await auth();
+  const session = await getSession();
 
   if (!session) {
     redirect('/login');
@@ -29,11 +29,18 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
         {/* Navigation Menu */}
         <nav className="flex-1 px-4 py-6 space-y-1">
           <Link
-            href="/dashboard"
+            href="/dashboard/meeting"
+            className="flex items-center px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
+          >
+            <Video className="w-5 h-5 mr-3" />
+            Meeting Room
+          </Link>
+          <Link
+            href="/dashboard/past-meetings"
             className="flex items-center px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
           >
             <Calendar className="w-5 h-5 mr-3" />
-            Meetings
+            Past Meetings
           </Link>
           <Link
             href="/dashboard/teams"
@@ -48,13 +55,6 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
           >
             <Settings className="w-5 h-5 mr-3" />
             Settings
-          </Link>
-          <Link
-            href="/dashboard/meeting"
-            className="flex items-center px-4 py-2 text-gray-700 hover:bg-blue-50 hover:text-blue-600 rounded-lg transition-colors"
-          >
-            <Video className="w-5 h-5 mr-3" />
-            Meeting Room
           </Link>
         </nav>
 

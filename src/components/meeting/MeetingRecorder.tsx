@@ -6,18 +6,31 @@ import { startTranscription, stopTranscription } from '@/lib/azure/speech';
 import { Mic, MicOff, Square, Pencil, X, Check } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import MeetingSummary from './MeetingSummary';
+import { useRouter } from 'next/navigation';
+import { toast } from 'react-hot-toast';
 
 interface Transcription {
   text: string;
   timestamp: number;
   isFinal: boolean;
   speakerId?: string;
+  speakerName?: string;
+}
+
+interface TranscriptionCallback {
+  (text: string, isFinal: boolean, speakerId?: string): void;
 }
 
 // Function to get a display name for a speaker
-function getSpeakerDisplayName(speakerId: string | undefined, lastSpeaker: string = 'Speaker 1'): string | null {
+function getSpeakerDisplayName(speakerId: string | undefined, speakerNames: Record<string, string> = {}, lastSpeaker: string = 'Speaker 1'): string | null {
   if (!speakerId) return null;
   
+  // First check if we have a saved name for this speaker
+  if (speakerNames[speakerId]) {
+    return speakerNames[speakerId];
+  }
+  
+  // If no saved name, use the default formatting
   // Handle Guest speaker IDs
   if (speakerId.startsWith('Guest-')) {
     const guestNumber = speakerId.replace('Guest-', '');
@@ -38,212 +51,402 @@ function getSpeakerDisplayName(speakerId: string | undefined, lastSpeaker: strin
   return null;
 }
 
-export default function MeetingRecorder() {
+interface MeetingRecorderProps {
+  meetingId?: string; // Optional meeting ID for existing meetings
+  readOnly?: boolean; // Whether to show in read-only mode
+  initialTranscriptions?: Array<{
+    text: string;
+    timestamp: number;
+    speakerId?: string;
+    speakerName?: string;
+  }>;
+  initialSpeakerNames?: Record<string, string>;
+  initialSummary?: {
+    summary: string;
+    actionItems: string[];
+    keyPoints: string[];
+  };
+}
+
+export default function MeetingRecorder({ 
+  meetingId, 
+  readOnly = false,
+  initialTranscriptions = [],
+  initialSpeakerNames = {},
+  initialSummary
+}: MeetingRecorderProps) {
+  const router = useRouter();
   const { data: session } = useSession();
   const [isRecording, setIsRecording] = useState(false);
-  const [transcriptions, setTranscriptions] = useState<Transcription[]>([]);
+  const [transcriptions, setTranscriptions] = useState<Transcription[]>(
+    initialTranscriptions.map(t => ({
+      ...t,
+      isFinal: true // All initial transcriptions are final
+    }))
+  );
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const recognizerRef = useRef<sdk.ConversationTranscriber | null>(null);
   const audioConfigRef = useRef<sdk.AudioConfig | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const interimTranscriptionsRef = useRef<Map<string, Transcription>>(new Map());
   const lastSpeakerRef = useRef<string>('Speaker 1');
-  const [speakerNames, setSpeakerNames] = useState<{ [id: string]: string }>({});
+  const [meetingSummary, setMeetingSummary] = useState<{
+    summary: string;
+    actionItems: string[];
+    keyPoints: string[];
+  } | null>(initialSummary || null);
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>(initialSpeakerNames);
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const editingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const lastClickTimeRef = useRef<number>(0);
   const isEditingRef = useRef<boolean>(false);
+  const [hasIdentifiedSpeakers, setHasIdentifiedSpeakers] = useState(false);
+  const [currentMeetingId, setCurrentMeetingId] = useState<string | undefined>(meetingId);
 
-  const trackUsage = async (duration: number) => {
+  // Debug logging
+  useEffect(() => {
+    console.log('MeetingRecorder props:', {
+      meetingId,
+      readOnly,
+      initialTranscriptionsCount: initialTranscriptions.length,
+      initialSpeakerNamesCount: Object.keys(initialSpeakerNames).length,
+      hasInitialSummary: !!initialSummary,
+      currentTranscriptionsCount: transcriptions.length,
+      currentSpeakerNamesCount: Object.keys(speakerNames).length,
+      hasCurrentSummary: !!meetingSummary
+    });
+  }, [meetingId, readOnly, initialTranscriptions, initialSpeakerNames, initialSummary, transcriptions, speakerNames, meetingSummary]);
+
+  // Load existing meeting data if meetingId is provided and we don't have initial data
+  useEffect(() => {
+    if (meetingId && (!initialTranscriptions.length || !Object.keys(initialSpeakerNames).length)) {
+      const loadMeeting = async () => {
+        try {
+          const response = await fetch(`/api/meetings/${meetingId}`);
+          if (!response.ok) throw new Error('Failed to load meeting');
+          
+          const meeting = await response.json();
+          console.log('Loaded meeting data:', {
+            id: meeting._id,
+            speakerNames: meeting.speakerNames,
+            transcriptionsCount: meeting.transcriptions?.length || 0,
+            sampleTranscription: meeting.transcriptions?.[0]
+          });
+
+          setMeetingTitle(meeting.title);
+          // Only set transcriptions if we don't have initial ones
+          if (!initialTranscriptions.length) {
+            const processedTranscriptions = (meeting.transcriptions || []).map((t: { text: string; timestamp: number; speakerId?: string; speakerName?: string }) => {
+              const speakerId = t.speakerId || '';
+              const displayName = meeting.speakerNames?.[speakerId] || t.speakerName || getDisplayName(speakerId);
+              console.log('Processing loaded transcription:', {
+                speakerId,
+                speakerName: t.speakerName,
+                savedName: meeting.speakerNames?.[speakerId],
+                displayName
+              });
+              return {
+                ...t,
+                isFinal: true, // All transcriptions in past meetings are final
+                speakerName: displayName // Use the display name from speakerNames if available
+              };
+            });
+            setTranscriptions(processedTranscriptions);
+          }
+          // Only set speaker names if we don't have initial ones
+          if (!Object.keys(initialSpeakerNames).length && meeting.speakerNames) {
+            console.log('Setting speaker names from loaded meeting:', meeting.speakerNames);
+            setSpeakerNames(meeting.speakerNames);
+          }
+          // Only set summary if we don't have an initial one
+          if (!initialSummary && meeting.summary) {
+            setMeetingSummary(meeting.summary);
+          }
+        } catch (error) {
+          console.error('Error loading meeting:', error);
+          toast.error('Failed to load meeting data');
+        }
+      };
+      loadMeeting();
+    }
+  }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary]);
+
+  // Save meeting data
+  const saveMeeting = async (endTime?: Date) => {
     if (!session?.user?.id) return;
     
+    setIsSaving(true);
     try {
-      await fetch('/api/usage/track', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          service: 'speech',
-          duration,
-          userId: session.user.id,
-        }),
+      // Filter out any transcriptions that don't have text
+      const validTranscriptions = transcriptions.filter(t => t.text && t.text.trim().length > 0);
+
+      // Log current speaker names state
+      console.log('Current speaker names before save:', speakerNames);
+
+      // Update speakerNames map with any names from transcriptions
+      const updatedSpeakerNames = { ...speakerNames };
+      validTranscriptions.forEach(t => {
+        if (t.speakerId && t.speakerName) {
+          updatedSpeakerNames[t.speakerId] = t.speakerName;
+        }
       });
+
+      const meetingData = {
+        title: meetingTitle || 'Untitled Meeting',
+        startTime: startTimeRef.current ? new Date(startTimeRef.current) : new Date(),
+        endTime: endTime || new Date(),
+        transcriptions: validTranscriptions.map(t => {
+          const speakerId = t.speakerId || '';
+          const displayName = updatedSpeakerNames[speakerId] || getDisplayName(speakerId);
+          console.log('Processing transcription for save:', {
+            speakerId,
+            displayName,
+            savedName: updatedSpeakerNames[speakerId]
+          });
+          return {
+            text: t.text.trim(),
+            timestamp: t.timestamp,
+            isFinal: t.isFinal,
+            speakerId: speakerId,
+            speakerName: displayName
+          };
+        }),
+        speakerNames: updatedSpeakerNames,
+        summary: meetingSummary,
+      };
+
+      console.log('Saving meeting data:', {
+        currentMeetingId,
+        transcriptionsCount: validTranscriptions.length,
+        speakerNames: updatedSpeakerNames,
+        sampleTranscription: meetingData.transcriptions[0]
+      });
+
+      // Always use PATCH if we have a meeting ID, otherwise POST
+      const url = currentMeetingId ? `/api/meetings/${currentMeetingId}` : '/api/meetings';
+      const method = currentMeetingId ? 'PATCH' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(meetingData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to save meeting:', errorData);
+        throw new Error(errorData.details || 'Failed to save meeting');
+      }
+
+      const savedMeeting = await response.json();
+      console.log('Meeting saved successfully:', {
+        id: savedMeeting._id,
+        transcriptionsCount: savedMeeting.transcriptions?.length || 0,
+        speakerNames: savedMeeting.speakerNames,
+        sampleTranscription: savedMeeting.transcriptions?.[0]
+      });
+
+      // Update local state with the saved data
+      if (savedMeeting.speakerNames) {
+        setSpeakerNames(savedMeeting.speakerNames);
+      }
+
+      // If this was a new meeting, update the currentMeetingId and URL
+      if (!currentMeetingId) {
+        setCurrentMeetingId(savedMeeting._id);
+        window.history.pushState({}, '', `/dashboard/meeting/${savedMeeting._id}`);
+      }
+      
+      toast.success('Meeting saved successfully');
     } catch (error) {
-      console.error('Error tracking usage:', error);
+      console.error('Error saving meeting:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to save meeting');
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const startRecording = async () => {
+    if (!session?.user?.id) {
+      toast.error('Please sign in to start recording');
+      return;
+    }
+
     try {
-      // Clear previous transcriptions
-      setTranscriptions([]);
+      // Reset speaker identification state
+      setHasIdentifiedSpeakers(false);
       interimTranscriptionsRef.current.clear();
-      lastSpeakerRef.current = 'Speaker 1';
       
       // Request microphone permission
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Create audio config from the stream
-      audioConfigRef.current = sdk.AudioConfig.fromStreamInput(stream);
-      
-      // Start transcription
-      recognizerRef.current = await startTranscription(audioConfigRef.current);
-      
-      // Set up event handlers
-      if (recognizerRef.current) {
-        recognizerRef.current.transcribed = (s, e) => {
-          if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
-            // Get the speaker ID from the result
-            const speakerId = e.result.speakerId ? 
-              getSpeakerDisplayName(e.result.speakerId, lastSpeakerRef.current) : 
-              null;
-            
-            // Only process if we have a valid speaker ID
-            if (speakerId) {
-              // Update last speaker
-              lastSpeakerRef.current = speakerId;
-              
-              // Create the final transcription
-              const finalTranscription = {
-                text: e.result.text,
-                timestamp: Date.now(),
-                isFinal: true,
-                speakerId
-              };
+      const audioConfig = sdk.AudioConfig.fromStreamInput(stream);
+      audioConfigRef.current = audioConfig;
 
-              // Remove the interim transcription for this speaker
-              interimTranscriptionsRef.current.delete(speakerId);
-              
-              // Update the transcriptions array
+      // Start transcription with the audio config
+      const recognizer = await startTranscription(audioConfig);
+      
+      if (!recognizer) {
+        throw new Error('Failed to start transcription');
+      }
+
+      // Set up event handlers
+      if (recognizer) {
+        const handleTranscription: TranscriptionCallback = (text, isFinal, speakerId) => {
+          const timestamp = Date.now();
+          
+          // Get the display name for the speaker
+          const displayName = getSpeakerDisplayName(speakerId, speakerNames);
+          
+          // If we get a valid speaker ID, mark as identified
+          if (displayName && !hasIdentifiedSpeakers) {
+            console.log('Speaker identified:', displayName);
+            setHasIdentifiedSpeakers(true);
+          }
+
+          // Create transcription with the display name
+          const transcription: Transcription = {
+            text,
+            timestamp,
+            isFinal,
+            speakerId: speakerId, // Keep the original speaker ID
+            speakerName: getSpeakerDisplayName(speakerId, speakerNames) || speakerId,
+          };
+
+          if (isFinal) {
+            // For final transcriptions, replace any interim transcription for this speaker
+            setTranscriptions(prev => {
+              const filtered = prev.filter(t => 
+                // Keep all final transcriptions
+                t.isFinal ||
+                // Keep interim transcriptions from other speakers
+                (t.speakerId !== transcription.speakerId)
+              );
+              return [...filtered, transcription];
+            });
+            interimTranscriptionsRef.current.delete(transcription.speakerId || '');
+          } else {
+            // For interim transcriptions, update if we have a valid speaker
+            if (displayName || hasIdentifiedSpeakers) {
+              interimTranscriptionsRef.current.set(transcription.speakerId || '', transcription);
               setTranscriptions(prev => {
-                // Remove any interim transcription for this speaker
-                const filteredTranscriptions = prev.filter(t => 
-                  t.speakerId !== speakerId || t.isFinal
+                const filtered = prev.filter(t => 
+                  // Keep all final transcriptions
+                  t.isFinal ||
+                  // Keep interim transcriptions from other speakers
+                  (t.speakerId !== transcription.speakerId)
                 );
-                
-                // Add the final transcription
-                return [...filteredTranscriptions, finalTranscription];
+                return [...filtered, transcription];
               });
             }
           }
         };
 
-        recognizerRef.current.transcribing = (s, e) => {
-          // Get the speaker ID from the result
-          const speakerId = e.result.speakerId ? 
-            getSpeakerDisplayName(e.result.speakerId, lastSpeakerRef.current) : 
-            null;
-
-          // Only process if we have a valid speaker ID
-          if (speakerId) {
-            // Create the interim transcription
-            const interimTranscription = {
-              text: e.result.text,
-              timestamp: Date.now(),
-              isFinal: false,
-              speakerId
-            };
-
-            // Store the interim transcription
-            interimTranscriptionsRef.current.set(speakerId, interimTranscription);
-
-            // Update the transcriptions array
-            setTranscriptions(prev => {
-              // Get all final transcriptions
-              const finalTranscriptions = prev.filter(t => t.isFinal);
-              
-              // Add all current interim transcriptions
-              const allTranscriptions = [
-                ...finalTranscriptions,
-                ...Array.from(interimTranscriptionsRef.current.values())
-              ];
-
-              // Sort by timestamp
-              return allTranscriptions.sort((a, b) => a.timestamp - b.timestamp);
-            });
+        recognizer.transcribed = (s, e) => {
+          if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
+            const speakerId = e.result.speakerId || undefined;
+            handleTranscription(e.result.text, true, speakerId);
           }
+        };
+
+        recognizer.transcribing = (s, e) => {
+          const speakerId = e.result.speakerId || undefined;
+          handleTranscription(e.result.text, false, speakerId);
         };
       }
 
+      recognizerRef.current = recognizer;
       startTimeRef.current = Date.now();
       setIsRecording(true);
+
+      toast.success('Recording started');
     } catch (error) {
       console.error('Error starting recording:', error);
-      alert('Error starting recording. Please check microphone permissions.');
+      toast.error('Failed to start recording');
     }
   };
 
   const stopRecording = async () => {
-    if (recognizerRef.current) {
+    if (!recognizerRef.current) return;
+
+    try {
       await stopTranscription(recognizerRef.current);
       recognizerRef.current = null;
-    }
-    if (audioConfigRef.current) {
-      audioConfigRef.current.close();
       audioConfigRef.current = null;
+      setIsRecording(false);
+
+      // Don't save here - let user save manually or use auto-save
+      toast.success('Recording stopped');
+    } catch (error) {
+      console.error('Error stopping recording:', error);
+      toast.error('Failed to stop recording');
     }
-    
-    // Process transcriptions when stopping
-    setTranscriptions(prev => {
-      // Get all final transcriptions
-      const finalTranscriptions = prev.filter(t => t.isFinal);
-      
-      // Get all interim transcriptions that aren't already in final form
-      const interimTranscriptions = Array.from(interimTranscriptionsRef.current.values())
-        .filter(t => t.speakerId !== 'Speaker Unknown')
-        .filter(t => !finalTranscriptions.some(ft => 
-          ft.speakerId === t.speakerId && 
-          ft.text === t.text
-        ));
-      
-      // Convert interim to final and combine with existing final transcriptions
-      const allTranscriptions = [
-        ...finalTranscriptions,
-        ...interimTranscriptions.map(t => ({ ...t, isFinal: true }))
-      ];
-      
-      // Sort by timestamp
-      return allTranscriptions.sort((a, b) => a.timestamp - b.timestamp);
-    });
-    
-    // Clear interim transcriptions
-    interimTranscriptionsRef.current.clear();
-    
-    // Track usage if we have a start time
-    if (startTimeRef.current) {
-      const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
-      await trackUsage(duration);
-      startTimeRef.current = null;
-    }
-    
-    setIsRecording(false);
   };
 
+  // Auto-save every 30 seconds while recording
   useEffect(() => {
+    let autoSaveInterval: NodeJS.Timeout;
+    
+    if (isRecording && transcriptions.length > 0 && currentMeetingId) {
+      autoSaveInterval = setInterval(() => {
+        saveMeeting();
+      }, 60000); // Save every minute instead of every 30 seconds
+    }
+
     return () => {
-      if (recognizerRef.current) {
-        stopRecording();
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval);
       }
     };
-  }, []);
+  }, [isRecording, transcriptions, currentMeetingId]);
 
   // Helper: get display name for a speaker
   function getDisplayName(speakerId: string) {
-    return speakerNames[speakerId] || speakerId;
+    // First check if we have a saved name for this speaker
+    if (speakerNames[speakerId]) {
+      return speakerNames[speakerId];
+    }
+    
+    // If no saved name, use the default formatting
+    if (speakerId.startsWith('Guest-')) {
+      const guestNumber = speakerId.replace('Guest-', '');
+      return `Speaker ${guestNumber}`;
+    }
+    
+    if (speakerId.startsWith('CONVERSATION_SPEAKER_')) {
+      const speakerNumber = speakerId.replace('CONVERSATION_SPEAKER_', '');
+      return `Speaker ${speakerNumber}`;
+    }
+    
+    if (speakerId.startsWith('Speaker_') || /^[0-9]+$/.test(speakerId)) {
+      return `Speaker ${speakerId.replace('Speaker_', '')}`;
+    }
+    
+    return speakerId;
   }
 
   // When recording stops, initialize speakerNames mapping
   useEffect(() => {
     if (!isRecording && transcriptions.length > 0) {
       console.log('Recording stopped, initializing speaker names');
-      const uniqueSpeakers = Array.from(new Set(transcriptions.map(t => t.speakerId)));
+      const uniqueSpeakers = Array.from(new Set(transcriptions.map(t => t.speakerId).filter(Boolean)));
       console.log('Unique speakers:', uniqueSpeakers);
       setSpeakerNames(prev => {
         const updated = { ...prev };
         uniqueSpeakers.forEach(id => {
-          if (id && !updated[id]) updated[id] = id;
+          if (id) {
+            // If we have a speakerName in the transcription, use that
+            const transcription = transcriptions.find(t => t.speakerId === id);
+            if (transcription?.speakerName) {
+              updated[id] = transcription.speakerName;
+            } else if (!updated[id]) {
+              updated[id] = getDisplayName(id);
+            }
+          }
         });
         console.log('Updated speaker names:', updated);
         return updated;
@@ -256,12 +459,17 @@ export default function MeetingRecorder() {
     e.preventDefault();
     e.stopPropagation();
 
+    if (isRecording) {
+      toast.error('Cannot edit speaker names while recording');
+      return;
+    }
+
     console.log('Starting edit for speaker:', speakerId);
     const currentSpeakerId = speakerId.trim();
     
     editingRef.current = currentSpeakerId;
     setEditingSpeaker(currentSpeakerId);
-    setEditingValue(speakerNames[currentSpeakerId] || currentSpeakerId);
+    setEditingValue(speakerNames[currentSpeakerId] || getDisplayName(currentSpeakerId));
     
     // Focus the input after it's rendered
     setTimeout(() => {
@@ -272,7 +480,7 @@ export default function MeetingRecorder() {
     }, 0);
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingRef.current) return;
 
     const currentSpeakerId = editingRef.current;
@@ -283,14 +491,103 @@ export default function MeetingRecorder() {
       return;
     }
 
-    console.log('Saving speaker name for:', currentSpeakerId);
-    setSpeakerNames(prev => ({ ...prev, [currentSpeakerId]: newName }));
-    editingRef.current = null;
-    setEditingSpeaker(null);
-    setEditingValue('');
+    console.log('Saving speaker name edit:', {
+      speakerId: currentSpeakerId,
+      newName,
+      currentSpeakerNames: speakerNames
+    });
+
+    try {
+      // Update local state first
+      const updatedSpeakerNames = { ...speakerNames, [currentSpeakerId]: newName };
+      setSpeakerNames(updatedSpeakerNames);
+
+      // Update transcriptions to use the new name
+      setTranscriptions(prev => prev.map(t => {
+        if (t.speakerId === currentSpeakerId) {
+          return {
+            ...t,
+            speakerName: newName
+          };
+        }
+        return t;
+      }));
+
+      // Clear edit state
+      editingRef.current = null;
+      setEditingSpeaker(null);
+      setEditingValue('');
+
+      // Save the meeting to persist the speaker name change
+      const meetingData = {
+        title: meetingTitle || 'Untitled Meeting',
+        startTime: startTimeRef.current ? new Date(startTimeRef.current) : new Date(),
+        endTime: new Date(),
+        transcriptions: transcriptions.map(t => ({
+          ...t,
+          speakerName: t.speakerId === currentSpeakerId ? newName : t.speakerName
+        })),
+        speakerNames: updatedSpeakerNames,
+        summary: meetingSummary
+      };
+
+      console.log('Saving meeting with updated speaker name:', {
+        speakerId: currentSpeakerId,
+        newName,
+        speakerNames: updatedSpeakerNames,
+        sampleTranscription: meetingData.transcriptions[0]
+      });
+
+      const url = currentMeetingId ? `/api/meetings/${currentMeetingId}` : '/api/meetings';
+      const method = currentMeetingId ? 'PATCH' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(meetingData),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to save speaker name');
+      }
+
+      const savedMeeting = await response.json();
+      console.log('Meeting saved with updated speaker name:', {
+        id: savedMeeting._id,
+        speakerNames: savedMeeting.speakerNames,
+        sampleTranscription: savedMeeting.transcriptions?.[0]
+      });
+
+      // Update local state with the saved data
+      if (savedMeeting.speakerNames) {
+        setSpeakerNames(savedMeeting.speakerNames);
+      }
+
+      // If this was a new meeting, update the currentMeetingId
+      if (!currentMeetingId) {
+        setCurrentMeetingId(savedMeeting._id);
+        window.history.pushState({}, '', `/dashboard/meeting/${savedMeeting._id}`);
+      }
+
+      toast.success('Speaker name updated');
+    } catch (error) {
+      console.error('Error saving speaker name:', error);
+      toast.error('Failed to save speaker name');
+      // Revert the local state change if save failed
+      setSpeakerNames(speakerNames);
+    }
   };
 
   const cancelEdit = () => {
+    if (editingRef.current) {
+      // Revert any changes to speaker names
+      const speakerId = editingRef.current;
+      setSpeakerNames(prev => {
+        const updated = { ...prev };
+        delete updated[speakerId];
+        return updated;
+      });
+    }
     editingRef.current = null;
     setEditingSpeaker(null);
     setEditingValue('');
@@ -300,109 +597,175 @@ export default function MeetingRecorder() {
   const getFormattedTranscript = () => {
     return transcriptions
       .filter(t => t.isFinal && t.speakerId && t.speakerId !== 'Speaker Unknown')
-      .map(t => `${getDisplayName(t.speakerId || '')}: ${t.text}`)
+      .map(t => {
+        const speakerId = t.speakerId || '';
+        const displayName = getDisplayName(speakerId);
+        console.log('Formatting transcription:', {
+          speakerId,
+          displayName,
+          savedName: speakerNames[speakerId]
+        });
+        return `${displayName}: ${t.text}`;
+      })
       .join('\n');
   };
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h2 className="text-xl font-semibold text-gray-900">Meeting Recording</h2>
-        <button
-          onClick={isRecording ? stopRecording : startRecording}
-          className={`btn ${isRecording ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'} flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors`}
-        >
-          {isRecording ? (
-            <>
-              <Square className="w-4 h-4" />
-              Stop Recording
-            </>
-          ) : (
-            <>
-              <Mic className="w-4 h-4" />
-              Start Recording
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Transcription Display */}
-      <div className="bg-white rounded-lg shadow p-4 h-[400px] overflow-y-auto">
-        {transcriptions.map((transcription, index) => (
-          <div
-            key={`${transcription.timestamp}-${index}`}
-            className={`mb-2 p-2 rounded ${
-              transcription.isFinal && !isRecording ? 'bg-blue-50' : 'bg-gray-50'
-            }`}
-          >
-            <div className="flex items-start gap-2">
-              {/* Inline editable speaker name */}
-              {(!isRecording && editingRef.current === transcription.speakerId?.trim()) ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    ref={inputRef}
-                    className="text-xs font-medium px-2 py-1 rounded bg-white text-gray-900 outline-none border border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    value={editingValue}
-                    onChange={(e) => setEditingValue(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        saveEdit();
-                      } else if (e.key === 'Escape') {
-                        e.preventDefault();
-                        cancelEdit();
-                      }
-                    }}
-                    style={{ minWidth: 60 }}
-                  />
-                  <button
-                    onClick={saveEdit}
-                    className="p-1 text-green-600 hover:text-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 rounded"
-                    title="Save"
-                  >
-                    <Check className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={cancelEdit}
-                    className="p-1 text-red-600 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 rounded"
-                    title="Cancel"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
+        <div className="flex-1 mr-4">
+          <input
+            type="text"
+            value={meetingTitle}
+            onChange={(e) => setMeetingTitle(e.target.value)}
+            placeholder="Meeting Title"
+            className="w-full px-4 py-2 text-xl font-semibold text-gray-900 bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none"
+            disabled={isRecording || readOnly}
+          />
+        </div>
+        {!readOnly && (
+          <div className="flex gap-2">
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`btn ${isRecording ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'} text-white flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+              disabled={isSaving}
+            >
+              {isRecording ? (
+                <>
+                  <Square className="w-4 h-4" />
+                  Stop Recording
+                </>
               ) : (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-medium px-2 py-1 rounded bg-gray-200 text-gray-900">
-                    {getDisplayName(transcription.speakerId || '')}
-                  </span>
-                  {!isRecording && (
-                    <button
-                      onClick={(e) => startEditing(transcription.speakerId || '', e)}
-                      className="p-1 text-gray-600 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 rounded"
-                      title="Edit speaker name"
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
+                <>
+                  <Mic className="w-4 h-4" />
+                  Start Recording
+                </>
               )}
-              <div className="flex-1">
-                <p className={`text-sm ${transcription.isFinal && !isRecording ? 'text-gray-900' : 'text-gray-600'}`}>
-                  {transcription.text}
-                </p>
-                <span className="text-xs text-gray-500">
-                  {new Date(transcription.timestamp).toLocaleTimeString()}
-                </span>
-              </div>
-            </div>
+            </button>
+            {!isRecording && transcriptions.length > 0 && (
+              <button
+                onClick={() => saveMeeting()}
+                disabled={isSaving}
+                className="btn bg-green-600 hover:bg-green-700 text-white flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Check className="w-4 h-4" />
+                Save
+              </button>
+            )}
           </div>
-        ))}
+        )}
       </div>
 
-      {/* Meeting Summary Section */}
-      {!isRecording && transcriptions.length > 0 && (
+      {/* Show transcriptions if we have any */}
+      {transcriptions.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-4 h-[400px] overflow-y-auto">
+          {transcriptions.map((transcription, index) => {
+            const speakerId = transcription.speakerId || '';
+            const displayName = getDisplayName(speakerId);
+            console.log('Rendering transcription:', {
+              speakerId,
+              displayName,
+              savedName: speakerNames[speakerId]
+            });
+            return (
+              <div
+                key={`${transcription.timestamp}-${index}`}
+                className={`mb-2 p-2 rounded ${
+                  transcription.isFinal ? 'bg-blue-50' : 'bg-gray-50'
+                }`}
+              >
+                <div className="flex items-start gap-2">
+                  <div className="flex items-center gap-1">
+                    {editingSpeaker === speakerId ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          ref={inputRef}
+                          type="text"
+                          value={editingValue}
+                          onChange={(e) => setEditingValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEdit();
+                            if (e.key === 'Escape') cancelEdit();
+                          }}
+                          onBlur={saveEdit}
+                          className="text-xs px-2 py-1 rounded bg-white border border-gray-300 focus:border-blue-500 focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          onClick={saveEdit}
+                          className="p-1 text-green-600 hover:text-green-900 focus:outline-none"
+                          title="Save"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          className="p-1 text-red-600 hover:text-red-900 focus:outline-none"
+                          title="Cancel"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="text-xs font-medium px-2 py-1 rounded bg-gray-200 text-gray-900">
+                          {displayName}
+                        </span>
+                        {!readOnly && (
+                          <button
+                            onClick={(e) => startEditing(speakerId, e)}
+                            className="p-1 text-gray-600 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Edit speaker name"
+                            disabled={isRecording}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className={`text-sm ${
+                      transcription.isFinal ? 'text-gray-900' : 'text-gray-500'
+                    }`}>
+                      {transcription.text}
+                    </p>
+                    <span className="text-xs text-gray-500">
+                      {new Date(transcription.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Show AI features if we have a summary or transcriptions */}
+      {(meetingSummary || transcriptions.length > 0) && (
         <div className="mt-8">
-          <MeetingSummary transcript={getFormattedTranscript()} />
+          <MeetingSummary 
+            transcript={getFormattedTranscript()} 
+            initialSummary={meetingSummary || undefined}
+            onSummaryGenerated={(summary) => {
+              setMeetingSummary(summary);
+              // Auto-save the meeting when a summary is generated
+              saveMeeting();
+            }}
+          />
+        </div>
+      )}
+
+      {/* Show a message if no transcriptions and no summary */}
+      {transcriptions.length === 0 && !meetingSummary && (
+        <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+          {readOnly ? (
+            "No transcriptions or summary available for this meeting."
+          ) : isRecording && !hasIdentifiedSpeakers ? (
+            "Waiting for speaker identification..."
+          ) : (
+            "Start recording to capture meeting transcriptions."
+          )}
         </div>
       )}
     </div>

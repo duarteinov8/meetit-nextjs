@@ -1,11 +1,11 @@
-import { auth } from '@/auth';
+import { getSession } from '@/auth';
 import { redirect } from 'next/navigation';
 import MeetingRecorder from '@/components/meeting/MeetingRecorder';
 
 export default async function MeetingPage() {
   try {
     console.log('Attempting to load meeting page...');
-    const session = await auth();
+    const session = await getSession();
     console.log('Session:', session ? 'Found' : 'Not found');
     
     if (!session) {

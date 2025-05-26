@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth';
-import type { DefaultSession, NextAuthConfig } from 'next-auth';
+import type { DefaultSession, NextAuthOptions, Session } from 'next-auth';
 import type { JWT } from 'next-auth/jwt';
+import type { User as NextAuthUser } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { MongoDBAdapter } from '@auth/mongodb-adapter';
@@ -59,9 +60,12 @@ const config = {
             name: user.name,
             image: user.image,
           };
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('Auth error:', error);
-          throw new Error(error.message || 'Authentication failed');
+          if (error instanceof Error) {
+            throw new Error(error.message);
+          }
+          throw new Error('Authentication failed');
         }
       }
     }),
@@ -79,7 +83,7 @@ const config = {
     error: '/login',
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user }: { token: JWT; user?: NextAuthUser }) {
       try {
         if (user) {
           token.id = user.id;
@@ -90,7 +94,7 @@ const config = {
         throw error;
       }
     },
-    async session({ session, token }) {
+    async session({ session, token }: { session: Session; token: JWT }) {
       try {
         if (session.user) {
           session.user.id = token.id as string;
@@ -104,10 +108,10 @@ const config = {
   },
   secret: process.env.NEXTAUTH_SECRET,
   debug: process.env.NODE_ENV === 'development',
-} satisfies NextAuthConfig;
+} satisfies NextAuthOptions;
 
 export const authOptions = config;
 
-const { auth, signIn, signOut, handlers } = NextAuth(config);
+const handler = NextAuth(authOptions);
 
-export const { GET, POST } = handlers; 
+export { handler as GET, handler as POST }; 
