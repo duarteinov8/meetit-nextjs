@@ -6,8 +6,9 @@ import connectDB from '@/lib/mongoose';
 // GET /api/meetings/[id] - Get a specific meeting
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const { id } = await params;
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -17,7 +18,7 @@ export async function GET(
     await connectDB();
 
     const meeting = await Meeting.findOne({
-      _id: params.id,
+      _id: id,
       userId: session.user.id,
     });
 
@@ -67,8 +68,9 @@ export async function GET(
 // PATCH /api/meetings/[id] - Update a meeting
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const { id } = await params;
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -77,7 +79,7 @@ export async function PATCH(
 
     const body = await request.json();
     console.log('PATCH request body:', {
-      id: params.id,
+      id: id,
       transcriptionsCount: body.transcriptions?.length || 0,
       speakerNames: body.speakerNames,
       hasSummary: !!body.summary,
@@ -102,7 +104,7 @@ export async function PATCH(
     // Find and update the meeting
     const meeting = await Meeting.findOneAndUpdate(
       {
-        _id: params.id,
+        _id: id,
         userId: session.user.id,
       },
       {
@@ -170,8 +172,9 @@ export async function PATCH(
 // DELETE /api/meetings/[id] - Delete a meeting
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ): Promise<NextResponse> {
+  const { id } = await params;
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -181,7 +184,7 @@ export async function DELETE(
     await connectDB();
 
     const meeting = await Meeting.findOneAndDelete({
-      _id: params.id,
+      _id: id,
       userId: session.user.id,
     });
 
