@@ -115,7 +115,7 @@ async function createConversationTranscriber(
     });
   };
 
-  transcriber.canceled = (_s, e) => {
+  transcriber.canceled = (_s, e: sdk.ConversationTranscriptionCanceledEventArgs) => {
     console.log(`CANCELED: Reason=${e.reason}`);
     if (e.reason === sdk.CancellationReason.Error) {
       console.log(`CANCELED: ErrorCode=${e.errorCode}`);
@@ -123,7 +123,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.sessionStopped = (_s, _e) => {
+  transcriber.sessionStopped = () => {
     console.log('Session stopped');
     transcriber.stopTranscribingAsync();
   };
