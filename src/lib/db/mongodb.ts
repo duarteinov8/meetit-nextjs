@@ -17,7 +17,7 @@ interface MongooseCache {
 }
 
 declare global {
-  let mongoose: MongooseCache | undefined;
+  var mongoose: MongooseCache | undefined;
 }
 
 /**
@@ -25,10 +25,10 @@ declare global {
  * in development. This prevents connections growing exponentially
  * during API Route usage.
  */
-const cached: MongooseCache = global.mongoose || { conn: null, promise: null };
+const cached: MongooseCache = (global as any).mongoose || { conn: null, promise: null };
 
-if (!global.mongoose) {
-  global.mongoose = cached;
+if (!(global as any).mongoose) {
+  (global as any).mongoose = cached;
 }
 
 async function connectDB() {
