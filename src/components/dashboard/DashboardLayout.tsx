@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { UserCircle, Calendar, Users, Settings, Video } from 'lucide-react';
 import SignOutButton from './SignOutButton';
+import Image from 'next/image';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -64,10 +65,12 @@ export default async function DashboardLayout({ children }: DashboardLayoutProps
             <div className="flex items-center space-x-3 p-3 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer">
               <div className="flex-shrink-0">
                 {session.user.image ? (
-                  <img
+                  <Image
                     src={session.user.image}
                     alt={session.user.name || 'User'}
-                    className="w-10 h-10 rounded-full"
+                    width={40}
+                    height={40}
+                    className="rounded-full"
                   />
                 ) : (
                   <UserCircle className="w-10 h-10 text-gray-400" />

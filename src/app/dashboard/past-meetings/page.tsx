@@ -80,7 +80,7 @@ export default function PastMeetingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.user?.id, pagination.limit]);
+  }, [session?.user?.id, pagination.limit, search, status]);
 
   // Create a debounced search function
   const debouncedSearch = useMemo(

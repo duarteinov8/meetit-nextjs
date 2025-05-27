@@ -32,7 +32,7 @@ export default async function ProfilePage() {
       <div className="space-y-4">
         <div className="p-4 bg-gray-50 rounded-lg">
           <p className="text-gray-600 text-sm">
-            Profile customization features are coming soon! You'll be able to update your profile picture and name in a future update.
+            Profile customization features are coming soon! You&apos;ll be able to update your profile picture and name in a future update.
           </p>
         </div>
         <div className="text-sm text-gray-500">

@@ -65,7 +65,7 @@ export default function MeetingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.user?.id, pagination.limit]);
+  }, [session?.user?.id, pagination.limit, search]);
 
   // Create a debounced search function
   const debouncedSearch = useMemo(

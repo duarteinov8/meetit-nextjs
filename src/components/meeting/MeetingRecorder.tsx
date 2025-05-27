@@ -58,6 +58,7 @@ interface MeetingRecorderProps {
     timestamp: number;
     speakerId?: string;
     speakerName?: string;
+    isFinal?: boolean; // Optional, defaults to true for initial transcriptions
   }>;
   initialSpeakerNames?: Record<string, string>;
   initialSummary?: {
@@ -99,6 +100,30 @@ export default function MeetingRecorder({
   const editingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasIdentifiedSpeakers, setHasIdentifiedSpeakers] = useState(false);
+
+  // Memoize getDisplayName first
+  const getDisplayName = useCallback((speakerId: string) => {
+    if (!speakerId) return 'Unknown Speaker';
+    return speakerNames[speakerId] || `Guest-${speakerId.split('-')[1] || '1'}`;
+  }, [speakerNames]);
+
+  // Initialize transcriptions with speaker names
+  useEffect(() => {
+    if (initialTranscriptions.length > 0) {
+      const processedTranscriptions = initialTranscriptions.map(t => ({
+        ...t,
+        speakerName: t.speakerName || getDisplayName(t.speakerId || ''),
+        isFinal: t.isFinal ?? true // Default to true for initial transcriptions
+      }));
+      setTranscriptions(processedTranscriptions);
+    }
+    if (Object.keys(initialSpeakerNames).length > 0) {
+      setSpeakerNames(initialSpeakerNames);
+    }
+    if (initialSummary) {
+      setMeetingSummary(initialSummary);
+    }
+  }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
 
   // Load existing meeting data if meetingId is provided and we don't have initial data
   useEffect(() => {
@@ -154,7 +179,7 @@ export default function MeetingRecorder({
     }
   }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
 
-  // Memoize the saveMeeting function
+  // Memoize saveMeeting
   const saveMeeting = useCallback(async (endTime?: Date) => {
     if (!session?.user?.id) return;
     
@@ -211,11 +236,11 @@ export default function MeetingRecorder({
       toast.success('Meeting saved successfully');
     } catch (error) {
       console.error('Error saving meeting:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to save meeting');
+      toast.error('Failed to save meeting');
     } finally {
       setIsSaving(false);
     }
-  }, [session?.user?.id, meetingId, meetingTitle, startTimeRef, speakerNames, meetingSummary, getDisplayName]);
+  }, [session?.user?.id, transcriptions, speakerNames, meetingTitle, meetingSummary, getDisplayName]);
 
   // Optimize the auto-save effect
   useEffect(() => {
@@ -354,31 +379,6 @@ export default function MeetingRecorder({
       toast.error('Failed to stop recording');
     }
   };
-
-  // Helper: get display name for a speaker
-  function getDisplayName(speakerId: string) {
-    // First check if we have a saved name for this speaker
-    if (speakerNames[speakerId]) {
-      return speakerNames[speakerId];
-    }
-    
-    // If no saved name, use the default formatting
-    if (speakerId.startsWith('Guest-')) {
-      const guestNumber = speakerId.replace('Guest-', '');
-      return `Speaker ${guestNumber}`;
-    }
-    
-    if (speakerId.startsWith('CONVERSATION_SPEAKER_')) {
-      const speakerNumber = speakerId.replace('CONVERSATION_SPEAKER_', '');
-      return `Speaker ${speakerNumber}`;
-    }
-    
-    if (speakerId.startsWith('Speaker_') || /^[0-9]+$/.test(speakerId)) {
-      return `Speaker ${speakerId.replace('Speaker_', '')}`;
-    }
-    
-    return speakerId;
-  }
 
   // When recording stops, initialize speakerNames mapping
   useEffect(() => {
