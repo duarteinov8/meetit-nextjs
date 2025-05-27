@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
-import { IUser } from '@/lib/models/User';
 import User from '@/lib/models/User';
 import { IMeeting } from '@/lib/models/Meeting';
 import Meeting from '@/lib/models/Meeting';

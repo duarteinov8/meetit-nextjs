@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
-import Image from 'next/image';
 import { authOptions } from '@/lib/auth-config';
 import UsageBar from '@/components/dashboard/UsageBar';
 

@@ -109,10 +109,10 @@ export default function MeetingRecorder({
 
   // Initialize transcriptions with speaker names
   useEffect(() => {
-    if (initialTranscriptions.length > 0) {
+    if (meetingId && initialTranscriptions.length > 0) {
       const processedTranscriptions = initialTranscriptions.map(t => ({
         ...t,
-        speakerName: t.speakerName || getDisplayName(t.speakerId || ''),
+        speakerName: t.speakerId ? getDisplayName(t.speakerId) : undefined,
         isFinal: t.isFinal ?? true // Default to true for initial transcriptions
       }));
       setTranscriptions(processedTranscriptions);
@@ -123,7 +123,7 @@ export default function MeetingRecorder({
     if (initialSummary) {
       setMeetingSummary(initialSummary);
     }
-  }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
+  }, [meetingId, initialTranscriptions, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
 
   // Load existing meeting data if meetingId is provided and we don't have initial data
   useEffect(() => {
@@ -240,7 +240,7 @@ export default function MeetingRecorder({
     } finally {
       setIsSaving(false);
     }
-  }, [session?.user?.id, transcriptions, speakerNames, meetingTitle, meetingSummary, getDisplayName]);
+  }, [session?.user?.id, transcriptions, speakerNames, meetingTitle, meetingSummary, getDisplayName, meetingId]);
 
   // Optimize the auto-save effect
   useEffect(() => {
