@@ -1,18 +1,34 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 
-const userSchema = new mongoose.Schema({
+export interface IUser {
+  name: string;
+  email: string;
+  password: string;
+  image?: string;
+  emailVerified?: Date;
+  recordingTimeUsed: number; // in seconds
+  recordingTimeLimit: number; // in seconds (default 3 hours = 10800)
+  betaUser: boolean;
+  subscription: 'free' | 'pro' | 'enterprise';
+  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const userSchema = new mongoose.Schema<IUser>({
   name: {
     type: String,
     required: [true, 'Please provide a name'],
     maxlength: [60, 'Name cannot be more than 60 characters'],
+    trim: true,
   },
   email: {
     type: String,
     required: [true, 'Please provide an email'],
     unique: true,
-    lowercase: true,
     trim: true,
+    lowercase: true,
   },
   password: {
     type: String,
@@ -24,6 +40,20 @@ const userSchema = new mongoose.Schema({
   },
   emailVerified: {
     type: Date,
+  },
+  recordingTimeUsed: {
+    type: Number,
+    default: 0,
+    min: 0,
+  },
+  recordingTimeLimit: {
+    type: Number,
+    default: 10800, // 3 hours in seconds
+    min: 0,
+  },
+  betaUser: {
+    type: Boolean,
+    default: true,
   },
   createdAt: {
     type: Date,
@@ -44,6 +74,8 @@ const userSchema = new mongoose.Schema({
     enum: ['active', 'inactive', 'cancelled'],
     default: 'active',
   },
+}, {
+  timestamps: true,
 });
 
 // Update the updatedAt timestamp before saving
@@ -65,18 +97,6 @@ userSchema.pre('save', async function(next) {
     next(error instanceof Error ? error : new Error('Failed to hash password'));
   }
 });
-
-export interface IUser extends mongoose.Document {
-  name: string;
-  email: string;
-  password: string;
-  image?: string;
-  emailVerified?: Date;
-  subscription: 'free' | 'pro' | 'enterprise';
-  subscriptionStatus: 'active' | 'inactive' | 'cancelled';
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 // Ensure we're connected to MongoDB before creating the model
 const User = mongoose.models.User || mongoose.model<IUser>('User', userSchema);

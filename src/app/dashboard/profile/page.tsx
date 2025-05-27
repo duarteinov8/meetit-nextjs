@@ -2,42 +2,42 @@ import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import Image from 'next/image';
 import { authOptions } from '@/lib/auth-config';
+import UsageBar from '@/components/dashboard/UsageBar';
 
 export default async function ProfilePage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect('/login');
 
   return (
-    <div className="max-w-xl mx-auto bg-white rounded-lg shadow p-8">
-      <h1 className="text-2xl font-bold mb-6 text-blue-700">User Profile</h1>
-      <div className="flex items-center space-x-4 mb-6">
-        {session.user?.image ? (
-          <Image
-            src={session.user.image}
-            alt="Profile"
-            width={64}
-            height={64}
-            className="rounded-full object-cover"
-          />
-        ) : (
-          <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-400 text-3xl font-bold">
-            {session.user?.name?.[0]}
+    <div className="max-w-2xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6 text-gray-900">Profile</h1>
+      
+      <div className="bg-white rounded-lg shadow p-6 space-y-6">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-900">Name</label>
+            <p className="mt-1 text-lg text-gray-900">{session.user.name}</p>
           </div>
-        )}
-        <div>
-          <div className="text-lg font-semibold text-gray-900">{session.user?.name}</div>
-          <div className="text-gray-500">{session.user?.email}</div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-900">Email</label>
+            <p className="mt-1 text-lg text-gray-900">{session.user.email}</p>
+          </div>
+
+          <div className="pt-4 border-t border-gray-200">
+            <UsageBar />
+          </div>
         </div>
-      </div>
-      <div className="space-y-4">
-        <div className="p-4 bg-gray-50 rounded-lg">
-          <p className="text-gray-600 text-sm">
-            Profile customization features are coming soon! You&apos;ll be able to update your profile picture and name in a future update.
-          </p>
-        </div>
-        <div className="text-sm text-gray-500">
-          <p>Name: {session.user?.name}</p>
-          <p>Email: {session.user?.email}</p>
+
+        <div className="pt-6 border-t border-gray-200">
+          <form action="/api/auth/signout" method="POST">
+            <button
+              type="submit"
+              className="w-full bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors"
+            >
+              Sign Out
+            </button>
+          </form>
         </div>
       </div>
     </div>
