@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import { startTranscription, stopTranscription } from '@/lib/azure/speech';
 import { Mic, Square, Pencil, X, Check } from 'lucide-react';
@@ -100,20 +100,6 @@ export default function MeetingRecorder({
   const inputRef = useRef<HTMLInputElement>(null);
   const [hasIdentifiedSpeakers, setHasIdentifiedSpeakers] = useState(false);
 
-  // Debug logging
-  useEffect(() => {
-    console.log('MeetingRecorder props:', {
-      meetingId,
-      readOnly,
-      initialTranscriptionsCount: initialTranscriptions.length,
-      initialSpeakerNamesCount: Object.keys(initialSpeakerNames).length,
-      hasInitialSummary: !!initialSummary,
-      currentTranscriptionsCount: transcriptions.length,
-      currentSpeakerNamesCount: Object.keys(speakerNames).length,
-      hasCurrentSummary: !!meetingSummary
-    });
-  }, [meetingId, readOnly, initialTranscriptions, initialSpeakerNames, initialSummary, transcriptions, speakerNames, meetingSummary]);
-
   // Load existing meeting data if meetingId is provided and we don't have initial data
   useEffect(() => {
     if (meetingId && (!initialTranscriptions.length || !Object.keys(initialSpeakerNames).length)) {
@@ -168,17 +154,14 @@ export default function MeetingRecorder({
     }
   }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
 
-  // Save meeting data
-  const saveMeeting = async (endTime?: Date) => {
+  // Memoize the saveMeeting function
+  const saveMeeting = useCallback(async (endTime?: Date) => {
     if (!session?.user?.id) return;
     
     setIsSaving(true);
     try {
       // Filter out any transcriptions that don't have text
       const validTranscriptions = transcriptions.filter(t => t.text && t.text.trim().length > 0);
-
-      // Log current speaker names state
-      console.log('Current speaker names before save:', speakerNames);
 
       // Update speakerNames map with any names from transcriptions
       const updatedSpeakerNames = { ...speakerNames };
@@ -192,32 +175,16 @@ export default function MeetingRecorder({
         title: meetingTitle || 'Untitled Meeting',
         startTime: startTimeRef.current ? new Date(startTimeRef.current) : new Date(),
         endTime: endTime || new Date(),
-        transcriptions: validTranscriptions.map(t => {
-          const speakerId = t.speakerId || '';
-          const displayName = updatedSpeakerNames[speakerId] || getDisplayName(speakerId);
-          console.log('Processing transcription for save:', {
-            speakerId,
-            displayName,
-            savedName: updatedSpeakerNames[speakerId]
-          });
-          return {
-            text: t.text.trim(),
-            timestamp: t.timestamp,
-            isFinal: t.isFinal,
-            speakerId: speakerId,
-            speakerName: displayName
-          };
-        }),
+        transcriptions: validTranscriptions.map(t => ({
+          text: t.text.trim(),
+          timestamp: t.timestamp,
+          isFinal: t.isFinal,
+          speakerId: t.speakerId || '',
+          speakerName: updatedSpeakerNames[t.speakerId || ''] || getDisplayName(t.speakerId || '')
+        })),
         speakerNames: updatedSpeakerNames,
         summary: meetingSummary,
       };
-
-      console.log('Saving meeting data:', {
-        currentMeetingId: meetingId,
-        transcriptionsCount: validTranscriptions.length,
-        speakerNames: updatedSpeakerNames,
-        sampleTranscription: meetingData.transcriptions[0]
-      });
 
       // Always use PATCH if we have a meeting ID, otherwise POST
       const url = meetingId ? `/api/meetings/${meetingId}` : '/api/meetings';
@@ -231,17 +198,10 @@ export default function MeetingRecorder({
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('Failed to save meeting:', errorData);
         throw new Error(errorData.details || 'Failed to save meeting');
       }
 
       const savedMeeting = await response.json();
-      console.log('Meeting saved successfully:', {
-        id: savedMeeting._id,
-        transcriptionsCount: savedMeeting.transcriptions?.length || 0,
-        speakerNames: savedMeeting.speakerNames,
-        sampleTranscription: savedMeeting.transcriptions?.[0]
-      });
 
       // Update local state with the saved data
       if (savedMeeting.speakerNames) {
@@ -255,7 +215,27 @@ export default function MeetingRecorder({
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [session?.user?.id, meetingId, meetingTitle, startTimeRef, speakerNames, meetingSummary, getDisplayName]);
+
+  // Optimize the auto-save effect
+  useEffect(() => {
+    let autoSaveInterval: NodeJS.Timeout | undefined;
+    
+    if (isRecording && transcriptions.length > 0) {
+      // Only set up auto-save if we're recording and have transcriptions
+      autoSaveInterval = setInterval(() => {
+        if (!isSaving) { // Don't auto-save if we're already saving
+          saveMeeting();
+        }
+      }, 60000); // Save every minute
+    }
+
+    return () => {
+      if (autoSaveInterval) {
+        clearInterval(autoSaveInterval);
+      }
+    };
+  }, [isRecording, transcriptions.length, isSaving, saveMeeting]);
 
   const startRecording = async () => {
     if (!session?.user?.id) {
@@ -374,23 +354,6 @@ export default function MeetingRecorder({
       toast.error('Failed to stop recording');
     }
   };
-
-  // Auto-save every 30 seconds while recording
-  useEffect(() => {
-    let autoSaveInterval: NodeJS.Timeout;
-    
-    if (isRecording && transcriptions.length > 0) {
-      autoSaveInterval = setInterval(() => {
-        saveMeeting();
-      }, 60000); // Save every minute instead of every 30 seconds
-    }
-
-    return () => {
-      if (autoSaveInterval) {
-        clearInterval(autoSaveInterval);
-      }
-    };
-  }, [isRecording, transcriptions, saveMeeting]);
 
   // Helper: get display name for a speaker
   function getDisplayName(speakerId: string) {
