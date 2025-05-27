@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Calendar, Clock, Users, Search } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import debounce from 'lodash/debounce';
 
 interface Meeting {
   _id: string;
@@ -54,7 +55,8 @@ export default function PastMeetingsPage() {
   const [search, setSearch] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchMeetings = async (page: number = 1) => {
+  // Memoize the fetchMeetings function
+  const fetchMeetings = useCallback(async (page: number = 1, searchQuery: string = search, statusFilter: string = status) => {
     if (!session?.user?.id) return;
 
     setIsLoading(true);
@@ -62,8 +64,8 @@ export default function PastMeetingsPage() {
       const queryParams = new URLSearchParams({
         page: page.toString(),
         limit: pagination.limit.toString(),
-        ...(status && { status }),
-        ...(search && { search }),
+        ...(statusFilter && { status: statusFilter }),
+        ...(searchQuery && { search: searchQuery }),
       });
 
       const response = await fetch(`/api/meetings?${queryParams}`);
@@ -78,13 +80,43 @@ export default function PastMeetingsPage() {
     } finally {
       setIsLoading(false);
     }
+  }, [session?.user?.id, pagination.limit]);
+
+  // Create a debounced search function
+  const debouncedSearch = useMemo(
+    () => debounce((query: string) => {
+      fetchMeetings(1, query, status);
+    }, 300),
+    [fetchMeetings, status]
+  );
+
+  // Update search handler
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newSearch = e.target.value;
+    setSearch(newSearch);
+    debouncedSearch(newSearch);
   };
 
+  // Update status handler
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newStatus = e.target.value;
+    setStatus(newStatus);
+    fetchMeetings(1, search, newStatus);
+  };
+
+  // Initial load effect
   useEffect(() => {
     if (session?.user?.id) {
       fetchMeetings();
     }
-  }, [session?.user?.id, status, search, fetchMeetings]);
+  }, [session?.user?.id, fetchMeetings]);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSearch.cancel();
+    };
+  }, [debouncedSearch]);
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return 'N/A';
@@ -130,7 +162,7 @@ export default function PastMeetingsPage() {
                 type="text"
                 placeholder="Search meetings..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={handleSearchChange}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
@@ -138,7 +170,7 @@ export default function PastMeetingsPage() {
           <div className="flex gap-4">
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value)}
+              onChange={handleStatusChange}
               className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">All Status</option>

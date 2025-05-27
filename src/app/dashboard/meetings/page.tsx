@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
 import { Calendar, Clock, Users, Search } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import debounce from 'lodash/debounce';
 
 interface Meeting {
   _id: string;
@@ -40,7 +41,8 @@ export default function MeetingsPage() {
   const [search, setSearch] = useState<string>('');
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchMeetings = async (page: number = 1) => {
+  // Memoize the fetchMeetings function
+  const fetchMeetings = useCallback(async (page: number = 1, searchQuery: string = search) => {
     if (!session?.user?.id) return;
 
     setIsLoading(true);
@@ -48,7 +50,7 @@ export default function MeetingsPage() {
       const queryParams = new URLSearchParams({
         page: page.toString(),
         limit: pagination.limit.toString(),
-        ...(search && { search }),
+        ...(searchQuery && { search: searchQuery }),
       });
 
       const response = await fetch(`/api/meetings?${queryParams}`);
@@ -63,13 +65,36 @@ export default function MeetingsPage() {
     } finally {
       setIsLoading(false);
     }
+  }, [session?.user?.id, pagination.limit]);
+
+  // Create a debounced search function
+  const debouncedSearch = useMemo(
+    () => debounce((query: string) => {
+      fetchMeetings(1, query);
+    }, 300),
+    [fetchMeetings]
+  );
+
+  // Update search handler
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newSearch = e.target.value;
+    setSearch(newSearch);
+    debouncedSearch(newSearch);
   };
 
+  // Initial load effect
   useEffect(() => {
     if (session?.user?.id) {
       fetchMeetings();
     }
-  }, [session?.user?.id, search, fetchMeetings]);
+  }, [session?.user?.id, fetchMeetings]);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      debouncedSearch.cancel();
+    };
+  }, [debouncedSearch]);
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return 'N/A';
@@ -100,7 +125,7 @@ export default function MeetingsPage() {
                 type="text"
                 placeholder="Search meetings..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={handleSearchChange}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
