@@ -1,7 +1,6 @@
 import type { DefaultSession, NextAuthOptions, Session } from 'next-auth';
 import type { JWT } from 'next-auth/jwt';
 import type { User as NextAuthUser } from 'next-auth';
-import NextAuth from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import GoogleProvider from 'next-auth/providers/google';
 import { MongoDBAdapter } from '@auth/mongodb-adapter';

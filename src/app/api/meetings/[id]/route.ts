@@ -1,12 +1,13 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, NextRequest } from 'next/server';
 import { getSession } from '@/auth';
 import Meeting from '@/lib/models/Meeting';
 import connectDB from '@/lib/mongoose';
 
 // GET /api/meetings/[id] - Get a specific meeting
 export async function GET(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -17,7 +18,7 @@ export async function GET(
     await connectDB();
 
     const meeting = await Meeting.findOne({
-      _id: params.id,
+      _id: context.params.id,
       userId: session.user.id,
     });
 
@@ -66,8 +67,9 @@ export async function GET(
 
 // PATCH /api/meetings/[id] - Update a meeting
 export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -77,7 +79,7 @@ export async function PATCH(
 
     const body = await request.json();
     console.log('PATCH request body:', {
-      id: params.id,
+      id: context.params.id,
       transcriptionsCount: body.transcriptions?.length || 0,
       speakerNames: body.speakerNames,
       hasSummary: !!body.summary,
@@ -102,7 +104,7 @@ export async function PATCH(
     // Find and update the meeting
     const meeting = await Meeting.findOneAndUpdate(
       {
-        _id: params.id,
+        _id: context.params.id,
         userId: session.user.id,
       },
       {
@@ -169,8 +171,9 @@ export async function PATCH(
 
 // DELETE /api/meetings/[id] - Delete a meeting
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  request: NextRequest,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  context: { params: { id: string } }
 ) {
   try {
     const session = await getSession();
@@ -181,7 +184,7 @@ export async function DELETE(
     await connectDB();
 
     const meeting = await Meeting.findOneAndDelete({
-      _id: params.id,
+      _id: context.params.id,
       userId: session.user.id,
     });
 
