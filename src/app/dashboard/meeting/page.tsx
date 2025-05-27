@@ -2,6 +2,9 @@ import { getSession } from '@/auth';
 import { redirect } from 'next/navigation';
 import MeetingRecorder from '@/components/meeting/MeetingRecorder';
 
+// Mark this route as dynamic to prevent static generation
+export const dynamic = 'force-dynamic';
+
 export default async function MeetingPage() {
   try {
     console.log('Attempting to load meeting page...');
