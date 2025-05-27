@@ -383,27 +383,30 @@ export default function MeetingRecorder({
   // When recording stops, initialize speakerNames mapping
   useEffect(() => {
     if (!isRecording && transcriptions.length > 0) {
-      console.log('Recording stopped, initializing speaker names');
       const uniqueSpeakers = Array.from(new Set(transcriptions.map(t => t.speakerId).filter(Boolean)));
-      console.log('Unique speakers:', uniqueSpeakers);
-      setSpeakerNames(prev => {
-        const updated = { ...prev };
-        uniqueSpeakers.forEach(id => {
-          if (id) {
-            // If we have a speakerName in the transcription, use that
-            const transcription = transcriptions.find(t => t.speakerId === id);
-            if (transcription?.speakerName) {
-              updated[id] = transcription.speakerName;
-            } else if (!updated[id]) {
-              updated[id] = getDisplayName(id);
+      
+      // Only update if we have new speakers that aren't already in speakerNames
+      const hasNewSpeakers = uniqueSpeakers.some(id => id && !speakerNames[id]);
+      
+      if (hasNewSpeakers) {
+        setSpeakerNames(prev => {
+          const updated = { ...prev };
+          uniqueSpeakers.forEach(id => {
+            if (id && !updated[id]) {
+              // If we have a speakerName in the transcription, use that
+              const transcription = transcriptions.find(t => t.speakerId === id);
+              if (transcription?.speakerName) {
+                updated[id] = transcription.speakerName;
+              } else {
+                updated[id] = getDisplayName(id);
+              }
             }
-          }
+          });
+          return updated;
         });
-        console.log('Updated speaker names:', updated);
-        return updated;
-      });
+      }
     }
-  }, [isRecording, transcriptions, getDisplayName]);
+  }, [isRecording, transcriptions, speakerNames, getDisplayName]);
 
   // Inline edit handlers
   const startEditing = (speakerId: string, e: React.MouseEvent) => {
@@ -545,11 +548,6 @@ export default function MeetingRecorder({
       .map(t => {
         const speakerId = t.speakerId || '';
         const displayName = getDisplayName(speakerId);
-        console.log('Formatting transcription:', {
-          speakerId,
-          displayName,
-          savedName: speakerNames[speakerId]
-        });
         return `${displayName}: ${t.text}`;
       })
       .join('\n');
@@ -607,11 +605,6 @@ export default function MeetingRecorder({
           {transcriptions.map((transcription, index) => {
             const speakerId = transcription.speakerId || '';
             const displayName = getDisplayName(speakerId);
-            console.log('Rendering transcription:', {
-              speakerId,
-              displayName,
-              savedName: speakerNames[speakerId]
-            });
             return (
               <div
                 key={`${transcription.timestamp}-${index}`}
