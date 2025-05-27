@@ -3,17 +3,11 @@ import { getSession } from '@/auth';
 import Meeting from '@/lib/models/Meeting';
 import connectDB from '@/lib/mongoose';
 
-type RouteContext = {
-  params: {
-    id: string;
-  };
-};
-
 // GET /api/meetings/[id] - Get a specific meeting
 export async function GET(
   request: NextRequest,
-  context: RouteContext
-) {
+  { params }: { params: { id: string } }
+): Promise<NextResponse> {
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -23,7 +17,7 @@ export async function GET(
     await connectDB();
 
     const meeting = await Meeting.findOne({
-      _id: context.params.id,
+      _id: params.id,
       userId: session.user.id,
     });
 
@@ -73,8 +67,8 @@ export async function GET(
 // PATCH /api/meetings/[id] - Update a meeting
 export async function PATCH(
   request: NextRequest,
-  context: RouteContext
-) {
+  { params }: { params: { id: string } }
+): Promise<NextResponse> {
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -83,7 +77,7 @@ export async function PATCH(
 
     const body = await request.json();
     console.log('PATCH request body:', {
-      id: context.params.id,
+      id: params.id,
       transcriptionsCount: body.transcriptions?.length || 0,
       speakerNames: body.speakerNames,
       hasSummary: !!body.summary,
@@ -108,7 +102,7 @@ export async function PATCH(
     // Find and update the meeting
     const meeting = await Meeting.findOneAndUpdate(
       {
-        _id: context.params.id,
+        _id: params.id,
         userId: session.user.id,
       },
       {
@@ -176,8 +170,8 @@ export async function PATCH(
 // DELETE /api/meetings/[id] - Delete a meeting
 export async function DELETE(
   request: NextRequest,
-  context: RouteContext
-) {
+  { params }: { params: { id: string } }
+): Promise<NextResponse> {
   try {
     const session = await getSession();
     if (!session?.user?.id) {
@@ -187,7 +181,7 @@ export async function DELETE(
     await connectDB();
 
     const meeting = await Meeting.findOneAndDelete({
-      _id: context.params.id,
+      _id: params.id,
       userId: session.user.id,
     });
 
