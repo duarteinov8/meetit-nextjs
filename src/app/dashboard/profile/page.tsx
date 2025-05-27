@@ -1,18 +1,17 @@
-'use client';
-
-import { getSession } from '@/auth';
+import { getServerSession } from 'next-auth';
 import { redirect } from 'next/navigation';
 import Image from 'next/image';
+import { authOptions } from '@/lib/auth-config';
 
 export default async function ProfilePage() {
-  const session = await getSession();
+  const session = await getServerSession(authOptions);
   if (!session) redirect('/login');
 
   return (
     <div className="max-w-xl mx-auto bg-white rounded-lg shadow p-8">
       <h1 className="text-2xl font-bold mb-6 text-blue-700">User Profile</h1>
       <div className="flex items-center space-x-4 mb-6">
-        {session.user.image ? (
+        {session.user?.image ? (
           <Image
             src={session.user.image}
             alt="Profile"
@@ -22,12 +21,12 @@ export default async function ProfilePage() {
           />
         ) : (
           <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-blue-400 text-3xl font-bold">
-            {session.user.name?.[0]}
+            {session.user?.name?.[0]}
           </div>
         )}
         <div>
-          <div className="text-lg font-semibold text-gray-900">{session.user.name}</div>
-          <div className="text-gray-500">{session.user.email}</div>
+          <div className="text-lg font-semibold text-gray-900">{session.user?.name}</div>
+          <div className="text-gray-500">{session.user?.email}</div>
         </div>
       </div>
       <div className="space-y-4">
@@ -37,8 +36,8 @@ export default async function ProfilePage() {
           </p>
         </div>
         <div className="text-sm text-gray-500">
-          <p>Name: {session.user.name}</p>
-          <p>Email: {session.user.email}</p>
+          <p>Name: {session.user?.name}</p>
+          <p>Email: {session.user?.email}</p>
         </div>
       </div>
     </div>
