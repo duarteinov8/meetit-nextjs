@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import connectDB from '../mongoose';
 
 export interface ITranscription {
   text: string;
@@ -92,8 +91,11 @@ meetingSchema.index({ userId: 1, startTime: -1 });
 
 // Update duration when endTime is set
 meetingSchema.pre('save', function(next) {
-  if (this.endTime && this.startTime) {
+  if (this.endTime && this.startTime && this.endTime > this.startTime) {
     this.duration = Math.floor((this.endTime.getTime() - this.startTime.getTime()) / 1000);
+  } else if (this.endTime && this.startTime) {
+    // If endTime is before startTime, set duration to 0
+    this.duration = 0;
   }
   next();
 });

@@ -3,10 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import { startTranscription, stopTranscription } from '@/lib/azure/speech';
-import { Mic, MicOff, Square, Pencil, X, Check } from 'lucide-react';
+import { Mic, Square, Pencil, X, Check } from 'lucide-react';
 import { useSession } from 'next-auth/react';
 import MeetingSummary from './MeetingSummary';
-import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 
 interface Transcription {
@@ -22,7 +21,7 @@ interface TranscriptionCallback {
 }
 
 // Function to get a display name for a speaker
-function getSpeakerDisplayName(speakerId: string | undefined, speakerNames: Record<string, string> = {}, lastSpeaker: string = 'Speaker 1'): string | null {
+function getSpeakerDisplayName(speakerId: string | undefined, speakerNames: Record<string, string> = {}): string | null {
   if (!speakerId) return null;
   
   // First check if we have a saved name for this speaker
@@ -75,7 +74,6 @@ export default function MeetingRecorder({
   initialSpeakerNames = {},
   initialSummary
 }: MeetingRecorderProps) {
-  const router = useRouter();
   const { data: session } = useSession();
   const [isRecording, setIsRecording] = useState(false);
   const [transcriptions, setTranscriptions] = useState<Transcription[]>(
@@ -90,7 +88,6 @@ export default function MeetingRecorder({
   const audioConfigRef = useRef<sdk.AudioConfig | null>(null);
   const startTimeRef = useRef<number | null>(null);
   const interimTranscriptionsRef = useRef<Map<string, Transcription>>(new Map());
-  const lastSpeakerRef = useRef<string>('Speaker 1');
   const [meetingSummary, setMeetingSummary] = useState<{
     summary: string;
     actionItems: string[];
@@ -101,10 +98,7 @@ export default function MeetingRecorder({
   const [editingValue, setEditingValue] = useState<string>('');
   const editingRef = useRef<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const lastClickTimeRef = useRef<number>(0);
-  const isEditingRef = useRef<boolean>(false);
   const [hasIdentifiedSpeakers, setHasIdentifiedSpeakers] = useState(false);
-  const [currentMeetingId, setCurrentMeetingId] = useState<string | undefined>(meetingId);
 
   // Debug logging
   useEffect(() => {
@@ -172,7 +166,7 @@ export default function MeetingRecorder({
       };
       loadMeeting();
     }
-  }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary]);
+  }, [meetingId, initialTranscriptions.length, initialSpeakerNames, initialSummary, getDisplayName]);
 
   // Save meeting data
   const saveMeeting = async (endTime?: Date) => {
@@ -219,15 +213,15 @@ export default function MeetingRecorder({
       };
 
       console.log('Saving meeting data:', {
-        currentMeetingId,
+        currentMeetingId: meetingId,
         transcriptionsCount: validTranscriptions.length,
         speakerNames: updatedSpeakerNames,
         sampleTranscription: meetingData.transcriptions[0]
       });
 
       // Always use PATCH if we have a meeting ID, otherwise POST
-      const url = currentMeetingId ? `/api/meetings/${currentMeetingId}` : '/api/meetings';
-      const method = currentMeetingId ? 'PATCH' : 'POST';
+      const url = meetingId ? `/api/meetings/${meetingId}` : '/api/meetings';
+      const method = meetingId ? 'PATCH' : 'POST';
 
       const response = await fetch(url, {
         method,
@@ -254,12 +248,6 @@ export default function MeetingRecorder({
         setSpeakerNames(savedMeeting.speakerNames);
       }
 
-      // If this was a new meeting, update the currentMeetingId and URL
-      if (!currentMeetingId) {
-        setCurrentMeetingId(savedMeeting._id);
-        window.history.pushState({}, '', `/dashboard/meeting/${savedMeeting._id}`);
-      }
-      
       toast.success('Meeting saved successfully');
     } catch (error) {
       console.error('Error saving meeting:', error);
@@ -391,7 +379,7 @@ export default function MeetingRecorder({
   useEffect(() => {
     let autoSaveInterval: NodeJS.Timeout;
     
-    if (isRecording && transcriptions.length > 0 && currentMeetingId) {
+    if (isRecording && transcriptions.length > 0) {
       autoSaveInterval = setInterval(() => {
         saveMeeting();
       }, 60000); // Save every minute instead of every 30 seconds
@@ -402,7 +390,7 @@ export default function MeetingRecorder({
         clearInterval(autoSaveInterval);
       }
     };
-  }, [isRecording, transcriptions, currentMeetingId]);
+  }, [isRecording, transcriptions, saveMeeting]);
 
   // Helper: get display name for a speaker
   function getDisplayName(speakerId: string) {
@@ -452,7 +440,7 @@ export default function MeetingRecorder({
         return updated;
       });
     }
-  }, [isRecording, transcriptions]);
+  }, [isRecording, transcriptions, getDisplayName]);
 
   // Inline edit handlers
   const startEditing = (speakerId: string, e: React.MouseEvent) => {
@@ -538,8 +526,8 @@ export default function MeetingRecorder({
         sampleTranscription: meetingData.transcriptions[0]
       });
 
-      const url = currentMeetingId ? `/api/meetings/${currentMeetingId}` : '/api/meetings';
-      const method = currentMeetingId ? 'PATCH' : 'POST';
+      const url = meetingId ? `/api/meetings/${meetingId}` : '/api/meetings';
+      const method = meetingId ? 'PATCH' : 'POST';
 
       const response = await fetch(url, {
         method,
@@ -561,12 +549,6 @@ export default function MeetingRecorder({
       // Update local state with the saved data
       if (savedMeeting.speakerNames) {
         setSpeakerNames(savedMeeting.speakerNames);
-      }
-
-      // If this was a new meeting, update the currentMeetingId
-      if (!currentMeetingId) {
-        setCurrentMeetingId(savedMeeting._id);
-        window.history.pushState({}, '', `/dashboard/meeting/${savedMeeting._id}`);
       }
 
       toast.success('Speaker name updated');

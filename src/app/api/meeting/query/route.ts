@@ -13,7 +13,6 @@ const openai = new OpenAI({
 });
 
 const DEPLOYMENT_NAME = 'gpt-4';
-const MODEL_NAME = 'gpt-4';
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 second
 

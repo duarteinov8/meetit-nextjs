@@ -22,14 +22,6 @@ interface MeetingAnalysis {
   keyPoints: string[];
 }
 
-interface OpenAIResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-}
-
 // Helper function to retry operations
 async function retryOperation<T>(
   operation: () => Promise<T>,
@@ -116,7 +108,7 @@ export async function POST(request: Request) {
     let analysis: MeetingAnalysis;
     try {
       analysis = JSON.parse(content);
-    } catch (error) {
+    } catch {
       console.error('Failed to parse OpenAI response:', content);
       throw new Error('Invalid response format from OpenAI');
     }

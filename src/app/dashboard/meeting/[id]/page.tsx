@@ -35,7 +35,6 @@ export default function MeetingPage({ params }: PageProps) {
   const { id } = use(params);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const loadMeeting = async () => {
@@ -52,12 +51,10 @@ export default function MeetingPage({ params }: PageProps) {
           sampleTranscription: data.transcriptions?.[0]
         });
 
-        // Just use the data as is - the speakerName is already saved in each transcription
         setMeeting(data);
         setIsLoading(false);
       } catch (err) {
         console.error('Error loading meeting:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load meeting');
         setIsLoading(false);
       }
     };

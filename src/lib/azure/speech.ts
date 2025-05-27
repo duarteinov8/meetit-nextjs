@@ -77,7 +77,7 @@ async function createConversationTranscriber(
   const transcriber = new sdk.ConversationTranscriber(config, audioConfig);
   
   // Configure recognition settings
-  transcriber.transcribed = (s, e) => {
+  transcriber.transcribed = (_s, e) => {
     if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
       // Get the detailed JSON result
       const jsonResult = e.result.properties.getProperty(
@@ -105,7 +105,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.transcribing = (s, e) => {
+  transcriber.transcribing = (_s, e) => {
     // Log interim results
     console.log('Interim Result:', {
       speakerId: e.result.speakerId,
@@ -115,7 +115,7 @@ async function createConversationTranscriber(
     });
   };
 
-  transcriber.canceled = (s, e) => {
+  transcriber.canceled = (_s, e) => {
     console.log(`CANCELED: Reason=${e.reason}`);
     if (e.reason === sdk.CancellationReason.Error) {
       console.log(`CANCELED: ErrorCode=${e.errorCode}`);
@@ -123,7 +123,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.sessionStopped = (s, e) => {
+  transcriber.sessionStopped = (_s, _e) => {
     console.log('Session stopped');
     transcriber.stopTranscribingAsync();
   };
@@ -169,7 +169,7 @@ export async function startTranscription(audioConfig: sdk.AudioConfig): Promise<
   const transcriber = new sdk.ConversationTranscriber(config, audioConfig);
 
   // Add detailed logging for debugging
-  transcriber.transcribed = (s, e) => {
+  transcriber.transcribed = (_s, e) => {
     if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
       console.log('Transcribed (Final):', {
         text: e.result.text,
@@ -179,7 +179,7 @@ export async function startTranscription(audioConfig: sdk.AudioConfig): Promise<
     }
   };
 
-  transcriber.transcribing = (s, e) => {
+  transcriber.transcribing = (_s, e) => {
     console.log('Transcribing (Interim):', {
       text: e.result.text,
       speakerId: e.result.speakerId,

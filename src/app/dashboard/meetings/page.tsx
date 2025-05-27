@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
-import { Calendar, Clock, Users, Tag, Search, Filter } from 'lucide-react';
+import { Calendar, Clock, Users, Search } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface Meeting {
@@ -66,8 +66,10 @@ export default function MeetingsPage() {
   };
 
   useEffect(() => {
-    fetchMeetings();
-  }, [session?.user?.id, search]);
+    if (session?.user?.id) {
+      fetchMeetings();
+    }
+  }, [session?.user?.id, search, fetchMeetings]);
 
   const formatDuration = (seconds?: number) => {
     if (!seconds) return 'N/A';
