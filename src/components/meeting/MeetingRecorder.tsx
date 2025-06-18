@@ -98,7 +98,12 @@ export default function MeetingRecorder({
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState<string>('');
   const editingRef = useRef<string | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRefCallback = useCallback((node: HTMLInputElement | null) => {
+    if (node) {
+      node.focus();
+      node.select();
+    }
+  }, []);
   const [hasIdentifiedSpeakers, setHasIdentifiedSpeakers] = useState(false);
 
   // Memoize getDisplayName first
@@ -106,6 +111,50 @@ export default function MeetingRecorder({
     if (!speakerId) return 'Unknown Speaker';
     return speakerNames[speakerId] || `Guest-${speakerId.split('-')[1] || '1'}`;
   }, [speakerNames]);
+
+  // Function to detect and extract speaker names from text
+  const detectSpeakerName = useCallback((text: string): string | null => {
+    const lowerText = text.toLowerCase().trim();
+    
+    // Common patterns for name introduction
+    const namePatterns = [
+      // "Hi my name is Joe"
+      /(?:hi|hello|hey|good morning|good afternoon|good evening)\s+(?:my\s+)?name\s+is\s+([a-zA-Z]+)/i,
+      // "I'm John" or "I am John"
+      /(?:i'?m|i\s+am)\s+([a-zA-Z]+)/i,
+      // "This is Joe speaking"
+      /this\s+is\s+([a-zA-Z]+)(?:\s+speaking)?/i,
+      // "Joe here" or "It's Joe"
+      /(?:it'?s\s+)?([a-zA-Z]+)\s+here/i,
+      // "My name's Joe"
+      /my\s+name'?s\s+([a-zA-Z]+)/i,
+      // "Call me Joe"
+      /call\s+me\s+([a-zA-Z]+)/i,
+      // "You can call me Joe"
+      /you\s+can\s+call\s+me\s+([a-zA-Z]+)/i,
+      // "I go by Joe"
+      /i\s+go\s+by\s+([a-zA-Z]+)/i,
+      // "Everyone calls me Joe"
+      /everyone\s+calls\s+me\s+([a-zA-Z]+)/i,
+      // "My friends call me Joe"
+      /my\s+friends\s+call\s+me\s+([a-zA-Z]+)/i
+    ];
+
+    for (const pattern of namePatterns) {
+      const match = lowerText.match(pattern);
+      if (match && match[1]) {
+        const detectedName = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase();
+        console.log('Detected speaker name:', {
+          text: text,
+          pattern: pattern.source,
+          detectedName: detectedName
+        });
+        return detectedName;
+      }
+    }
+
+    return null;
+  }, []);
 
   // Initialize transcriptions with speaker names
   useEffect(() => {
@@ -187,6 +236,12 @@ export default function MeetingRecorder({
     try {
       // Filter out any transcriptions that don't have text
       const validTranscriptions = transcriptions.filter(t => t.text && t.text.trim().length > 0);
+
+      console.log('Saving meeting with filtered transcriptions:', {
+        originalCount: transcriptions.length,
+        validCount: validTranscriptions.length,
+        removedCount: transcriptions.length - validTranscriptions.length
+      });
 
       // Update speakerNames map with any names from transcriptions
       const updatedSpeakerNames = { ...speakerNames };
@@ -301,13 +356,35 @@ export default function MeetingRecorder({
             setHasIdentifiedSpeakers(true);
           }
 
-          // Create transcription with the display name
+          // Detect speaker name from the text if it's a final transcription
+          let detectedName: string | null = null;
+          if (isFinal && speakerId) {
+            detectedName = detectSpeakerName(text);
+            if (detectedName) {
+              console.log('Auto-assigning speaker name:', {
+                speakerId: speakerId,
+                detectedName: detectedName,
+                text: text
+              });
+              
+              // Update speaker names immediately
+              setSpeakerNames(prev => ({
+                ...prev,
+                [speakerId]: detectedName!
+              }));
+
+              // Show toast notification
+              toast.success(`Automatically assigned speaker name: ${detectedName}`);
+            }
+          }
+
+          // Create transcription with the display name (use detected name if available)
           const transcription: Transcription = {
             text,
             timestamp,
             isFinal,
             speakerId: speakerId, // Keep the original speaker ID
-            speakerName: getSpeakerDisplayName(speakerId, speakerNames) || speakerId,
+            speakerName: detectedName || getSpeakerDisplayName(speakerId, speakerNames) || speakerId,
           };
 
           if (isFinal) {
@@ -409,7 +486,7 @@ export default function MeetingRecorder({
   }, [isRecording, transcriptions, speakerNames, getDisplayName]);
 
   // Inline edit handlers
-  const startEditing = (speakerId: string, e: React.MouseEvent) => {
+  const startEditing = (speakerId: string, e: React.MouseEvent, uniqueId: string) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -422,16 +499,8 @@ export default function MeetingRecorder({
     const currentSpeakerId = speakerId.trim();
     
     editingRef.current = currentSpeakerId;
-    setEditingSpeaker(currentSpeakerId);
+    setEditingSpeaker(uniqueId);
     setEditingValue(speakerNames[currentSpeakerId] || getDisplayName(currentSpeakerId));
-    
-    // Focus the input after it's rendered
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select();
-      }
-    }, 0);
   };
 
   const saveEdit = async () => {
@@ -445,14 +514,15 @@ export default function MeetingRecorder({
       return;
     }
 
-    console.log('Saving speaker name edit:', {
+    console.log('Saving speaker name edit locally:', {
       speakerId: currentSpeakerId,
       newName,
-      currentSpeakerNames: speakerNames
+      currentSpeakerNames: speakerNames,
+      meetingId: meetingId || 'new-meeting'
     });
 
     try {
-      // Update local state first
+      // Update local state only - no API call
       const updatedSpeakerNames = { ...speakerNames, [currentSpeakerId]: newName };
       setSpeakerNames(updatedSpeakerNames);
 
@@ -472,57 +542,14 @@ export default function MeetingRecorder({
       setEditingSpeaker(null);
       setEditingValue('');
 
-      // Save the meeting to persist the speaker name change
-      const meetingData = {
-        title: meetingTitle || 'Untitled Meeting',
-        startTime: startTimeRef.current ? new Date(startTimeRef.current) : new Date(),
-        endTime: new Date(),
-        transcriptions: transcriptions.map(t => ({
-          ...t,
-          speakerName: t.speakerId === currentSpeakerId ? newName : t.speakerName
-        })),
-        speakerNames: updatedSpeakerNames,
-        summary: meetingSummary
-      };
-
-      console.log('Saving meeting with updated speaker name:', {
-        speakerId: currentSpeakerId,
-        newName,
-        speakerNames: updatedSpeakerNames,
-        sampleTranscription: meetingData.transcriptions[0]
-      });
-
-      const url = meetingId ? `/api/meetings/${meetingId}` : '/api/meetings';
-      const method = meetingId ? 'PATCH' : 'POST';
-
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(meetingData),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to save speaker name');
-      }
-
-      const savedMeeting = await response.json();
-      console.log('Meeting saved with updated speaker name:', {
-        id: savedMeeting._id,
-        speakerNames: savedMeeting.speakerNames,
-        sampleTranscription: savedMeeting.transcriptions?.[0]
-      });
-
-      // Update local state with the saved data
-      if (savedMeeting.speakerNames) {
-        setSpeakerNames(savedMeeting.speakerNames);
-      }
-
-      toast.success('Speaker name updated');
+      toast.success('Speaker name updated (will be saved when you click Save)');
     } catch (error) {
-      console.error('Error saving speaker name:', error);
-      toast.error('Failed to save speaker name');
-      // Revert the local state change if save failed
-      setSpeakerNames(speakerNames);
+      console.error('Error updating speaker name locally:', {
+        error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      toast.error('Failed to update speaker name');
     }
   };
 
@@ -605,6 +632,7 @@ export default function MeetingRecorder({
           {transcriptions.map((transcription, index) => {
             const speakerId = transcription.speakerId || '';
             const displayName = getDisplayName(speakerId);
+            const uniqueId = `${speakerId}-${index}`; // Create unique ID for each transcription entry
             return (
               <div
                 key={`${transcription.timestamp}-${index}`}
@@ -614,10 +642,10 @@ export default function MeetingRecorder({
               >
                 <div className="flex items-start gap-2">
                   <div className="flex items-center gap-1">
-                    {editingSpeaker === speakerId ? (
+                    {editingSpeaker === uniqueId ? (
                       <div className="flex items-center gap-1">
                         <input
-                          ref={inputRef}
+                          ref={inputRefCallback}
                           type="text"
                           value={editingValue}
                           onChange={(e) => setEditingValue(e.target.value)}
@@ -625,7 +653,6 @@ export default function MeetingRecorder({
                             if (e.key === 'Enter') saveEdit();
                             if (e.key === 'Escape') cancelEdit();
                           }}
-                          onBlur={saveEdit}
                           className="text-xs px-2 py-1 rounded bg-white border border-gray-300 focus:border-blue-500 focus:outline-none"
                           autoFocus
                         />
@@ -651,7 +678,7 @@ export default function MeetingRecorder({
                         </span>
                         {!readOnly && (
                           <button
-                            onClick={(e) => startEditing(speakerId, e)}
+                            onClick={(e) => startEditing(speakerId, e, uniqueId)}
                             className="p-1 text-gray-600 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 rounded disabled:opacity-50 disabled:cursor-not-allowed"
                             title="Edit speaker name"
                             disabled={isRecording}
