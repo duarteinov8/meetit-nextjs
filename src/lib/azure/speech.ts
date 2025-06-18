@@ -143,7 +143,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.sessionStopped = (sender: Recognizer, e: SessionEventArgs) => {
+  transcriber.sessionStopped = () => {
     console.log('Session stopped');
     transcriber.stopTranscribingAsync();
   };
