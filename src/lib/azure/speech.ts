@@ -125,17 +125,17 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.transcribing = (sender: Recognizer, e: ConversationTranscriptionEventArgs) => {
+  transcriber.transcribing = (_sender: Recognizer, _e: ConversationTranscriptionEventArgs) => {
     // Log interim results
     console.log('Interim Result:', {
-      speakerId: e.result.speakerId,
-      text: e.result.text,
-      offset: e.result.offset,
-      duration: e.result.duration
+      speakerId: _e.result.speakerId,
+      text: _e.result.text,
+      offset: _e.result.offset,
+      duration: _e.result.duration
     });
   };
 
-  transcriber.canceled = (sender: Recognizer, e: ConversationTranscriptionCanceledEventArgs) => {
+  transcriber.canceled = (_sender: Recognizer, e: ConversationTranscriptionCanceledEventArgs) => {
     console.log(`CANCELED: Reason=${e.reason}`);
     if (e.reason === sdk.CancellationReason.Error) {
       console.log(`CANCELED: ErrorCode=${e.errorCode}`);
@@ -143,7 +143,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.sessionStopped = (sender: Recognizer, e: SessionEventArgs) => {
+  transcriber.sessionStopped = (_sender: Recognizer, _e: SessionEventArgs) => {
     console.log('Session stopped');
     transcriber.stopTranscribingAsync();
   };
