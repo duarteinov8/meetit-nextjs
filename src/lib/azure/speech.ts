@@ -1,4 +1,10 @@
 import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
+import type { 
+  ConversationTranscriptionEventArgs, 
+  ConversationTranscriptionCanceledEventArgs,
+  SessionEventArgs,
+  Recognizer
+} from 'microsoft-cognitiveservices-speech-sdk';
 
 let speechConfig: sdk.SpeechConfig | null = null;
 
@@ -22,25 +28,43 @@ function getSpeechConfig() {
     // Set the speech recognition language
     speechConfig.speechRecognitionLanguage = 'en-US';
     
-    // Enable conversation transcription
+    // Enable conversation transcription with enhanced settings
     speechConfig.setProperty(
       'SpeechServiceConnection_EnableConversationTranscription',
       'true'
     );
 
-    // Enable speaker diarization
+    // Enable enhanced diarization
     speechConfig.setProperty(
-      'SpeechServiceConnection_EnableDiarization',
+      'SpeechServiceConnection_EnableEnhancedDiarization',
       'true'
     );
 
-    // Set the number of speakers
+    // Enable speaker identification confidence scores
     speechConfig.setProperty(
-      'SpeechServiceConnection_NumberOfSpeakers',
-      '2'
+      'SpeechServiceResponse_RequestSpeakerIdentificationConfidence',
+      'true'
     );
 
-    // Enable detailed results
+    // Enable audio preprocessing for better speaker separation
+    speechConfig.setProperty(
+      'SpeechServiceConnection_EnableAudioPreprocessing',
+      'true'
+    );
+
+    // Set optimal audio format and silence timeout
+    speechConfig.setProperty(
+      'SpeechServiceConnection_InitialSilenceTimeoutMs',
+      '5000'
+    );
+
+    // Set a more flexible number of speakers (can be adjusted based on meeting context)
+    speechConfig.setProperty(
+      'SpeechServiceConnection_NumberOfSpeakers',
+      '4'  // Default to 4, but this should be configurable
+    );
+
+    // Enable detailed results with speaker confidence
     speechConfig.setProperty(
       'SpeechServiceResponse_RequestDetailedResultJsonForLongRunningAudio',
       'true'
@@ -76,28 +100,24 @@ async function createConversationTranscriber(
 
   const transcriber = new sdk.ConversationTranscriber(config, audioConfig);
   
-  // Configure recognition settings
-  transcriber.transcribed = (_s, e) => {
+  transcriber.transcribed = (sender: Recognizer, e: ConversationTranscriptionEventArgs) => {
     if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
       // Get the detailed JSON result
       const jsonResult = e.result.properties.getProperty(
         sdk.PropertyId.SpeechServiceResponse_JsonResult
       );
       
-      // Log the full JSON result for debugging
-      console.log('Full JSON Result:', jsonResult);
-      
       try {
         const result = JSON.parse(jsonResult);
-        // Log the complete parsed result structure
-        console.log('Complete Result Structure:', JSON.stringify(result, null, 2));
         
-        // Log speaker information
+        // Log speaker information with confidence scores
         console.log('Speaker Information:', {
           speakerId: e.result.speakerId,
           text: e.result.text,
           offset: e.result.offset,
-          duration: e.result.duration
+          duration: e.result.duration,
+          confidence: result.SpeakerConfidence || 'N/A',
+          speakerAttributes: result.SpeakerAttributes || {}
         });
       } catch (error) {
         console.error('Error parsing JSON result:', error);
@@ -105,7 +125,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.transcribing = (_s, e) => {
+  transcriber.transcribing = (sender: Recognizer, e: ConversationTranscriptionEventArgs) => {
     // Log interim results
     console.log('Interim Result:', {
       speakerId: e.result.speakerId,
@@ -115,7 +135,7 @@ async function createConversationTranscriber(
     });
   };
 
-  transcriber.canceled = (_s, e: sdk.ConversationTranscriptionCanceledEventArgs) => {
+  transcriber.canceled = (sender: Recognizer, e: ConversationTranscriptionCanceledEventArgs) => {
     console.log(`CANCELED: Reason=${e.reason}`);
     if (e.reason === sdk.CancellationReason.Error) {
       console.log(`CANCELED: ErrorCode=${e.errorCode}`);
@@ -123,7 +143,7 @@ async function createConversationTranscriber(
     }
   };
 
-  transcriber.sessionStopped = () => {
+  transcriber.sessionStopped = (sender: Recognizer, e: SessionEventArgs) => {
     console.log('Session stopped');
     transcriber.stopTranscribingAsync();
   };
@@ -195,4 +215,14 @@ export async function startTranscription(audioConfig: sdk.AudioConfig): Promise<
 export async function stopTranscription(transcriber: sdk.ConversationTranscriber) {
   await transcriber.stopTranscribingAsync();
   transcriber.close();
+}
+
+// Add a function to update speaker count dynamically
+export function updateSpeakerCount(count: number) {
+  if (speechConfig) {
+    speechConfig.setProperty(
+      'SpeechServiceConnection_NumberOfSpeakers',
+      count.toString()
+    );
+  }
 } 
