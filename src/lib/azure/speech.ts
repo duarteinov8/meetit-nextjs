@@ -2,7 +2,6 @@ import * as sdk from 'microsoft-cognitiveservices-speech-sdk';
 import type { 
   ConversationTranscriptionEventArgs, 
   ConversationTranscriptionCanceledEventArgs,
-  SessionEventArgs,
   Recognizer
 } from 'microsoft-cognitiveservices-speech-sdk';
 
@@ -189,7 +188,7 @@ export async function startTranscription(audioConfig: sdk.AudioConfig): Promise<
   const transcriber = new sdk.ConversationTranscriber(config, audioConfig);
 
   // Add detailed logging for debugging
-  transcriber.transcribed = (_s, e) => {
+  transcriber.transcribed = (sender: Recognizer, e: ConversationTranscriptionEventArgs) => {
     if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
       console.log('Transcribed (Final):', {
         text: e.result.text,
@@ -199,7 +198,7 @@ export async function startTranscription(audioConfig: sdk.AudioConfig): Promise<
     }
   };
 
-  transcriber.transcribing = (_s, e) => {
+  transcriber.transcribing = (sender: Recognizer, e: ConversationTranscriptionEventArgs) => {
     console.log('Transcribing (Interim):', {
       text: e.result.text,
       speakerId: e.result.speakerId,
